@@ -1,9 +1,36 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { getDb, saveDb } from '../models/db.js';
+import supabase from '../utils/supabase.js';
+import crypto from 'crypto';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkeychangeinproduction';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+
+const formatUser = (user) => {
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    fullname: user.fullname,
+    avatarColor: user.avatar_color || '#808080',
+    xp: user.xp || 0,
+    level: user.level || 1,
+    streak: user.streak || 0,
+    solvedCount: user.solved_count || { easy: 0, medium: 0, hard: 0, total: 0 },
+    skills: user.skills || {
+      "Arrays": 0,
+      "Strings": 0,
+      "DP": 0,
+      "Trees": 0,
+      "Graphs": 0,
+      "Sorting": 0
+    },
+    contestHistory: [],
+    recentSubmissions: [],
+    createdAt: user.created_at
+  };
+};
 
 // Generate Token helper
 const generateToken = (userId) => {
@@ -21,17 +48,33 @@ export const signup = async (req, res) => {
       });
     }
 
-    const db = getDb();
+    // Check if username already exists
+    const { data: existingUserByUsername, error: usernameError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('username', username)
+      .maybeSingle();
 
-    // Check if user already exists
-    const existingUser = db.users.find(
-      u => u.username.toLowerCase() === username.toLowerCase() || u.email.toLowerCase() === email.toLowerCase()
-    );
-
-    if (existingUser) {
+    if (usernameError) throw usernameError;
+    if (existingUserByUsername) {
       return res.status(400).json({
         status: 'error',
-        message: 'Username or Email is already taken'
+        message: 'Username is already taken'
+      });
+    }
+
+    // Check if email already exists
+    const { data: existingUserByEmail, error: emailError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (emailError) throw emailError;
+    if (existingUserByEmail) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Email is already taken'
       });
     }
 
@@ -40,16 +83,16 @@ export const signup = async (req, res) => {
 
     // Create user object
     const newUser = {
-      id: `u_${Date.now()}`,
+      id: crypto.randomUUID(),
       username,
       email,
       password: hashedPassword,
       fullname,
-      avatarColor: '#' + Math.floor(Math.random()*16777215).toString(16),
+      avatar_color: '#' + Math.floor(Math.random()*16777215).toString(16),
       xp: 0,
       level: 1,
       streak: 0,
-      solvedCount: {
+      solved_count: {
         easy: 0,
         medium: 0,
         hard: 0,
@@ -62,22 +105,24 @@ export const signup = async (req, res) => {
         "Trees": 0,
         "Graphs": 0,
         "Sorting": 0
-      },
-      contestHistory: [],
-      recentSubmissions: [],
-      createdAt: new Date().toISOString()
+      }
     };
 
-    db.users.push(newUser);
-    saveDb(db);
+    const { data: user, error: insertError } = await supabase
+      .from('profiles')
+      .insert([newUser])
+      .select()
+      .single();
 
-    const token = generateToken(newUser.id);
-    const { password: _, ...userWithoutPassword } = newUser;
+    if (insertError) throw insertError;
+
+    const token = generateToken(user.id);
+    const safeUser = formatUser(user);
 
     res.status(201).json({
       status: 'success',
       token,
-      user: userWithoutPassword
+      user: safeUser
     });
 
   } catch (error) {
@@ -100,12 +145,16 @@ export const login = async (req, res) => {
       });
     }
 
-    const db = getDb();
-
     // Find user by username or email
-    const user = db.users.find(
-      u => u.username.toLowerCase() === username.toLowerCase() || u.email.toLowerCase() === username.toLowerCase()
-    );
+    const { data: user, error: findError } = await supabase
+      .from('profiles')
+      .select('*')
+      .or(`username.eq.${username},email.eq.${username}`)
+      .single();
+
+    if (findError && findError.code !== 'PGRST116') { // PGRST116 means no rows returned
+      throw findError;
+    }
 
     if (!user) {
       return res.status(401).json({
@@ -125,12 +174,12 @@ export const login = async (req, res) => {
     }
 
     const token = generateToken(user.id);
-    const { password: _, ...userWithoutPassword } = user;
+    const safeUser = formatUser(user);
 
     res.json({
       status: 'success',
       token,
-      user: userWithoutPassword
+      user: safeUser
     });
 
   } catch (error) {
@@ -142,9 +191,33 @@ export const login = async (req, res) => {
   }
 };
 
-export const getMe = (req, res) => {
-  res.json({
-    status: 'success',
-    user: req.user
-  });
+export const getMe = async (req, res) => {
+  try {
+    // req.user contains { userId } from authMiddleware
+    const { data: user, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', req.user.userId)
+      .single();
+      
+    if (error || !user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+    
+    const safeUser = formatUser(user);
+
+    res.json({
+      status: 'success',
+      user: safeUser
+    });
+  } catch (error) {
+    console.error('Get me error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch user'
+    });
+  }
 };

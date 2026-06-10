@@ -1,25 +1,156 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { MOCK_CONTESTS, MOCK_PROBLEMS } from '../data/mockData';
 import { Trophy, ShieldAlert, Award, FileCode, Timer, CheckCircle, Flame } from 'lucide-react';
 
-export default function ContestDetail() {
+export default function ContestDetail({ isLoggedIn }) {
   const { id } = useParams();
-  const contest = MOCK_CONTESTS.find(c => c.id === id) || MOCK_CONTESTS[0];
-
+  const [contest, setContest] = useState(null);
+  const [contestProblems, setContestProblems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [countdownText, setCountdownText] = useState('');
   const [activeSubTab, setActiveSubTab] = useState('problems'); // problems, leaderboard
 
-  // Filter problems for contest (mock association)
-  const contestProblems = MOCK_PROBLEMS.slice(0, 4);
+  useEffect(() => {
+    // 1. Fetch contest details
+    const fetchContest = fetch(`http://localhost:5000/api/contests/${id}`)
+      .then(res => res.json())
+      .then(data => data.contest || null)
+      .catch(err => {
+        console.error('Error fetching contest details:', err);
+        return null;
+      });
 
-  // Contest Specific Leaderboard (Mock Players)
-  const contestants = [
-    { rank: 1, name: "code_ninja_99", score: 400, time: "42:15", solved: 4 },
-    { rank: 2, name: "lexical_genius", score: 380, time: "51:04", solved: 4 },
-    { rank: 3, name: "competitor_unleashed", score: 290, time: "38:40", solved: 3 }, // simulated logged in user position
-    { rank: 4, name: "stack_overflow_pioneer", score: 280, time: "49:10", solved: 3 },
-    { rank: 5, name: "pointer_chaser", score: 180, time: "22:15", solved: 2 }
-  ];
+    // 2. Fetch problems
+    const fetchProblems = fetch('http://localhost:5000/api/problems')
+      .then(res => res.json())
+      .then(data => data.problems || [])
+      .catch(err => {
+        console.error('Error fetching problems:', err);
+        return [];
+      });
+
+    Promise.all([fetchContest, fetchProblems]).then(([contestData, allProbs]) => {
+      if (contestData) {
+        // Map problems that belong to the contest
+        const associatedProblems = allProbs.filter(p => contestData.problems.includes(p.id));
+        setContestProblems(associatedProblems);
+
+        // Assign targetTime for countdown ticking
+        let targetTime = null;
+        if (contestData.status === 'live') {
+          const parts = (contestData.countdown || '00:45:12').split(':');
+          if (parts.length === 3) {
+            const h = parseInt(parts[0], 10) || 0;
+            const m = parseInt(parts[1], 10) || 0;
+            const s = parseInt(parts[2], 10) || 0;
+            targetTime = Date.now() + (h * 3600 + m * 60 + s) * 1000;
+          } else {
+            targetTime = Date.now() + 45 * 60 * 1000;
+          }
+        } else if (contestData.status === 'upcoming') {
+          const match = (contestData.countdown || '').match(/Starts in (\d+)h (\d+)m/);
+          if (match) {
+            const h = parseInt(match[1], 10) || 0;
+            const m = parseInt(match[2], 10) || 0;
+            targetTime = Date.now() + (h * 3600 + m * 60) * 1000;
+          } else {
+            targetTime = Date.now() + 135 * 60 * 1000;
+          }
+        }
+        
+        setContest({ ...contestData, targetTime });
+      }
+      setLoading(false);
+    });
+  }, [id]);
+
+  useEffect(() => {
+    if (!contest) return;
+
+    if (!contest.targetTime) {
+      setCountdownText(contest.countdown || '');
+      return;
+    }
+
+    const updateCountdown = () => {
+      const diff = contest.targetTime - Date.now();
+      if (diff <= 0) {
+        setCountdownText(contest.status === 'live' ? 'Ended' : 'Starting...');
+      } else {
+        const sec = Math.floor(diff / 1000) % 60;
+        const min = Math.floor(diff / (1000 * 60)) % 60;
+        const hour = Math.floor(diff / (1000 * 60 * 60));
+        const pad = (n) => String(n).padStart(2, '0');
+
+        if (contest.status === 'live') {
+          setCountdownText(`${pad(hour)}:${pad(min)}:${pad(sec)}`);
+        } else {
+          setCountdownText(`Starts in ${hour}h ${min}m ${sec}s`);
+        }
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [contest]);
+
+  if (!isLoggedIn) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-10 bg-bg-darker min-h-screen flex items-center justify-center">
+        <div className="bg-bg-panel border border-brand-primary/30 w-full max-w-sm rounded-2xl p-6 glow-accent relative text-center">
+          <div className="w-14 h-14 rounded-full bg-brand-primary/10 flex items-center justify-center text-brand-primary mx-auto mb-4 border border-brand-primary/30 glow-accent animate-pulse">
+            <Trophy className="w-8 h-8" />
+          </div>
+          <h3 className="text-xl font-bold text-white">Contest Entry Required</h3>
+          <p className="text-sm text-slate-400 mt-2 leading-relaxed">
+            You must be logged in to participate in Syntiq contests, solve problems, and rank on the scoreboard.
+          </p>
+          <div className="flex gap-3 w-full mt-6">
+            <Link
+              to="/contests"
+              className="flex-1 bg-white/5 hover:bg-white/10 text-white text-xs font-bold py-3 rounded-xl border border-white/10 transition-colors text-center"
+            >
+              Back to Lobby
+            </Link>
+            <Link
+              to="/login"
+              className="flex-grow bg-brand-primary hover:bg-brand-primary-hover text-white text-xs font-bold py-3 rounded-xl transition-all shadow-md shadow-brand-primary/25 text-center flex items-center justify-center"
+            >
+              Sign In
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-10 bg-bg-darker min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-4 border-brand-primary border-t-transparent animate-spin" />
+          <p className="text-slate-400 text-sm font-medium">Synchronizing arena details with Supabase...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!contest) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-10 bg-bg-darker min-h-screen text-center text-slate-400">
+        <ShieldAlert className="w-16 h-16 text-brand-error/60 mx-auto mb-4" />
+        <h2 className="text-xl font-bold text-white mb-2">Contest Not Found</h2>
+        <p className="text-xs mb-6">The contest you are trying to view does not exist or has been deleted.</p>
+        <Link to="/contests" className="bg-brand-primary hover:bg-brand-primary-hover text-white text-xs font-bold px-6 py-3 rounded-xl transition-all">
+          Back to Contest Lobby
+        </Link>
+      </div>
+    );
+  }
+
+  // Contest Specific Leaderboard (Mock Players combined with database scores if needed)
+  const contestants = contest.scoreboard || [];
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-10 bg-bg-darker min-h-screen space-y-8">
@@ -150,22 +281,28 @@ export default function ContestDetail() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs">
-                  {contestants.map((c) => (
-                    <tr 
-                      key={c.rank} 
-                      className={`hover:bg-white/[0.01] transition-colors ${
-                        c.name === 'competitor_unleashed' ? 'bg-brand-primary/5 text-brand-primary font-semibold' : ''
-                      }`}
-                    >
-                      <td className="py-4 px-6 text-center font-bold text-slate-300">
-                        {c.rank === 1 ? '🥇' : c.rank === 2 ? '🥈' : c.rank === 3 ? '🥉' : c.rank}
+                  {contestants.length > 0 ? (
+                    contestants.map((c) => (
+                      <tr 
+                        key={c.rank} 
+                        className={`hover:bg-white/[0.01] transition-colors`}
+                      >
+                        <td className="py-4 px-6 text-center font-bold text-slate-300">
+                          {c.rank === 1 ? '🥇' : c.rank === 2 ? '🥈' : c.rank === 3 ? '🥉' : c.rank}
+                        </td>
+                        <td className="py-4 px-6 font-medium text-white">{c.username}</td>
+                        <td className="py-4 px-6 text-center text-slate-300 font-semibold">{c.solved ? c.solved.length : 0} / 4</td>
+                        <td className="py-4 px-6 text-center font-bold text-brand-primary">{c.penalty ? 400 - c.penalty : 0} pts</td>
+                        <td className="py-4 px-6 text-right text-slate-400 font-mono">{c.lastSubmit}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="5" className="py-12 text-center text-slate-500">
+                        No scoreboard entries yet.
                       </td>
-                      <td className="py-4 px-6 font-medium text-white">{c.name}</td>
-                      <td className="py-4 px-6 text-center text-slate-300 font-semibold">{c.solved} / 4</td>
-                      <td className="py-4 px-6 text-center font-bold text-brand-primary">{c.score} pts</td>
-                      <td className="py-4 px-6 text-right text-slate-400 font-mono">{c.time}</td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -185,11 +322,11 @@ export default function ContestDetail() {
             
             {contest.status !== 'past' ? (
               <div className="text-3xl font-extrabold text-white tracking-wider font-mono">
-                {contest.countdown}
+                {countdownText}
               </div>
             ) : (
               <div className="text-sm font-semibold text-slate-400">
-                Completed on Jan 12, 2026
+                {contest.countdown}
               </div>
             )}
 
@@ -197,10 +334,10 @@ export default function ContestDetail() {
               <div className="border-t border-white/5 pt-4 space-y-3">
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-slate-400">My Progress</span>
-                  <span className="font-bold text-white">3 / 4 Solved</span>
+                  <span className="font-bold text-white">0 / {contestProblems.length} Solved</span>
                 </div>
                 <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-brand-primary rounded-full" style={{ width: '75%' }} />
+                  <div className="h-full bg-brand-primary rounded-full" style={{ width: '0%' }} />
                 </div>
               </div>
             )}

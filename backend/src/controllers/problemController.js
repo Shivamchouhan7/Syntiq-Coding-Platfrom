@@ -1,20 +1,18 @@
-import { getDb, saveDb } from '../models/db.js';
+import supabase from '../utils/supabase.js';
 
-export const getAllProblems = (req, res) => {
+export const getAllProblems = async (req, res) => {
   try {
-    const db = getDb();
-    
-    // We can map problems to exclude full details/test cases to save bandwidth, 
-    // but returning the general metadata is fine for a light server.
-    const problemsList = db.problems.map(problem => {
-      // Exclude large fields if needed, or return all. Let's return standard list.
-      const { testCases, editorial, ...listData } = problem;
-      return listData;
-    });
+    const { data: problems, error } = await supabase
+      .from('problems')
+      .select('id, title, difficulty, acceptance, category, statement, recommended');
+
+    if (error) {
+      throw error;
+    }
 
     res.json({
       status: 'success',
-      problems: problemsList
+      problems: problems || []
     });
   } catch (error) {
     console.error('Get problems error:', error);
@@ -25,11 +23,19 @@ export const getAllProblems = (req, res) => {
   }
 };
 
-export const getProblemById = (req, res) => {
+export const getProblemById = async (req, res) => {
   try {
     const { id } = req.params;
-    const db = getDb();
-    const problem = db.problems.find(p => p.id === id);
+    
+    const { data: problem, error } = await supabase
+      .from('problems')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      throw error;
+    }
 
     if (!problem) {
       return res.status(404).json({
@@ -38,9 +44,18 @@ export const getProblemById = (req, res) => {
       });
     }
 
+    // Map snake_case database columns to camelCase frontend properties
+    const mappedProblem = {
+      ...problem,
+      starterCode: problem.starter_code,
+      testCases: problem.test_cases,
+      inputExample: problem.input_example,
+      outputExample: problem.output_example
+    };
+
     res.json({
       status: 'success',
-      problem
+      problem: mappedProblem
     });
   } catch (error) {
     console.error('Get problem details error:', error);
@@ -51,23 +66,14 @@ export const getProblemById = (req, res) => {
   }
 };
 
-export const createProblem = (req, res) => {
+export const createProblem = async (req, res) => {
   try {
-    const { id, title, difficulty, acceptance, category, statement, constraints, starterCode, testCases } = req.body;
+    const { id, title, difficulty, acceptance, category, statement, constraints, starterCode, testCases, editorial } = req.body;
 
     if (!id || !title || !difficulty || !statement) {
       return res.status(400).json({
         status: 'error',
         message: 'Required fields: id, title, difficulty, statement'
-      });
-    }
-
-    const db = getDb();
-
-    if (db.problems.some(p => p.id === id)) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Problem ID already exists'
       });
     }
 
@@ -79,18 +85,30 @@ export const createProblem = (req, res) => {
       category: category || "General",
       statement,
       constraints: constraints || [],
-      starterCode: starterCode || {},
-      testCases: testCases || [],
-      editorial: req.body.editorial || "",
-      discussion: []
+      starter_code: starterCode || {},
+      test_cases: testCases || [],
+      editorial: editorial || ""
     };
 
-    db.problems.push(newProblem);
-    saveDb(db);
+    const { data: problem, error } = await supabase
+      .from('problems')
+      .insert([newProblem])
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === '23505') { // Unique violation
+        return res.status(400).json({
+          status: 'error',
+          message: 'Problem ID already exists'
+        });
+      }
+      throw error;
+    }
 
     res.status(201).json({
       status: 'success',
-      problem: newProblem
+      problem
     });
   } catch (error) {
     console.error('Create problem error:', error);

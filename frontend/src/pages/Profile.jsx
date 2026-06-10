@@ -1,19 +1,68 @@
 import { Flame, Award, Calendar, CheckCircle2, XCircle, AlertTriangle, BarChart3, Star } from 'lucide-react';
-import { PROFILE_DATA } from '../data/mockData';
+import { useParams } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+
+const DEFAULT_PROFILE = {
+  username: "Anonymous Coder",
+  level: 1,
+  xp: 0,
+  streak: 0,
+  skills: { db: 0, algo: 0, math: 0, ds: 0 },
+  submissionHistory: [],
+  submissionCalendar: Array.from({ length: 365 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (364 - i));
+    return {
+      date: d.toISOString().split('T')[0],
+      count: 0
+    };
+  })
+};
 
 export default function Profile() {
-  const profile = PROFILE_DATA;
+  const { username } = useParams();
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // Simple calculation for XP progress (e.g. out of 25000 XP)
+  useEffect(() => {
+    if (!username) {
+      setProfile(DEFAULT_PROFILE);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const encoded = encodeURIComponent(username);
+    fetch(`http://localhost:5000/api/users/${encoded}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Not found');
+        return res.json();
+      })
+      .then(data => {
+        if (data.status === 'success' && data.user) {
+          setProfile(data.user);
+        } else {
+          setProfile(DEFAULT_PROFILE);
+        }
+      })
+      .catch(() => setProfile(DEFAULT_PROFILE))
+      .finally(() => setLoading(false));
+  }, [username]);
+
+  if (loading) return (
+    <div className="min-h-[calc(100vh-76px)] flex items-center justify-center text-slate-400">Loading profile...</div>
+  );
+
   const maxXPForLevel = 25000;
-  const xpPercentage = Math.min(100, Math.round((profile.xp / maxXPForLevel) * 100));
+  const xpPercentage = Math.min(100, Math.round(((profile ? profile.xp : 0) / maxXPForLevel) * 100));
 
   // Calendar dates: split into chunks of 7 for weeks
   const weeks = [];
-  const calendarData = profile.submissionCalendar;
+  const calendarData = (profile && profile.submissionCalendar) || DEFAULT_PROFILE.submissionCalendar;
   for (let i = 0; i < calendarData.length; i += 7) {
     weeks.push(calendarData.slice(i, i + 7));
   }
+
 
 
 
@@ -135,7 +184,7 @@ export default function Profile() {
                     <span className="text-white">{profile.solvedCount.easy} <span className="text-xs text-slate-400">solved</span></span>
                   </div>
                   <div className="h-2 w-full bg-bg-darker rounded-full overflow-hidden">
-                    <div className="h-full bg-brand-success" style={{ width: `${(profile.solvedCount.easy / profile.solvedCount.total) * 100}%` }} />
+                    <div className="h-full bg-brand-success" style={{ width: `${profile.solvedCount.total ? (profile.solvedCount.easy / profile.solvedCount.total) * 100 : 0}%` }} />
                   </div>
                 </div>
 
@@ -146,7 +195,7 @@ export default function Profile() {
                     <span className="text-white">{profile.solvedCount.medium} <span className="text-xs text-slate-400">solved</span></span>
                   </div>
                   <div className="h-2 w-full bg-bg-darker rounded-full overflow-hidden">
-                    <div className="h-full bg-brand-warning" style={{ width: `${(profile.solvedCount.medium / profile.solvedCount.total) * 100}%` }} />
+                    <div className="h-full bg-brand-warning" style={{ width: `${profile.solvedCount.total ? (profile.solvedCount.medium / profile.solvedCount.total) * 100 : 0}%` }} />
                   </div>
                 </div>
 
@@ -157,7 +206,7 @@ export default function Profile() {
                     <span className="text-white">{profile.solvedCount.hard} <span className="text-xs text-slate-400">solved</span></span>
                   </div>
                   <div className="h-2 w-full bg-bg-darker rounded-full overflow-hidden">
-                    <div className="h-full bg-brand-error" style={{ width: `${(profile.solvedCount.hard / profile.solvedCount.total) * 100}%` }} />
+                    <div className="h-full bg-brand-error" style={{ width: `${profile.solvedCount.total ? (profile.solvedCount.hard / profile.solvedCount.total) * 100 : 0}%` }} />
                   </div>
                 </div>
               </div>

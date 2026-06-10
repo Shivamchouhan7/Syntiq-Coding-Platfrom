@@ -1,11 +1,19 @@
 import { useState } from 'react';
 import { Trophy, Search, UserPlus, UserMinus, Star, Flame, Sparkles } from 'lucide-react';
-import { GLOBAL_LEADERBOARD } from '../data/mockData';
+
+const MOCK_LEADERBOARD = [
+  { rank: 1, avatar: "A", username: "alex_coder", rating: 2840, solved: 342, streak: 45, isFriend: false },
+  { rank: 2, avatar: "S", username: "sarah_dev", rating: 2610, solved: 298, streak: 12, isFriend: true },
+  { rank: 3, avatar: "M", username: "mike_algorithms", rating: 2490, solved: 275, streak: 8, isFriend: false },
+  { rank: 4, avatar: "K", username: "kate_structs", rating: 2210, solved: 189, streak: 0, isFriend: false },
+  { rank: 5, avatar: "J", username: "john_dp", rating: 1980, solved: 145, streak: 3, isFriend: false }
+];
 
 export default function Leaderboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('global'); // global, friends
-  const [leaderboardData, setLeaderboardData] = useState(GLOBAL_LEADERBOARD);
+  const [leaderboardData, setLeaderboardData] = useState(MOCK_LEADERBOARD);
+
 
   const handleToggleFriend = (username) => {
     setLeaderboardData(prev =>

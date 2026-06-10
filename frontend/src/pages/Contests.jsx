@@ -1,13 +1,18 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { MOCK_CONTESTS } from '../data/mockData';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Trophy, Calendar, Users, Clock, CheckCircle2 } from 'lucide-react';
 
-export default function Contests() {
-  const [contests, setContests] = useState(MOCK_CONTESTS);
+export default function Contests({ isLoggedIn }) {
+  const [contests, setContests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   // Register toggler for mock user
   const handleRegister = (id) => {
+    if (!isLoggedIn) {
+      navigate('/login');
+      return;
+    }
     setContests(prev => prev.map(c => {
       if (c.id === id) {
         const alreadyReg = c.registered;
@@ -20,6 +25,99 @@ export default function Contests() {
       return c;
     }));
   };
+
+  useEffect(() => {
+    fetch('http://localhost:5000/api/contests')
+      .then(res => res.json())
+      .then(data => {
+        const list = data.contests || [];
+        
+        // Map to include target timestamps for ticking countdowns
+        const mapped = list.map(c => {
+          let targetTime = null;
+          if (c.status === 'live') {
+            const parts = (c.countdown || '00:45:12').split(':');
+            if (parts.length === 3) {
+              const h = parseInt(parts[0], 10) || 0;
+              const m = parseInt(parts[1], 10) || 0;
+              const s = parseInt(parts[2], 10) || 0;
+              targetTime = Date.now() + (h * 3600 + m * 60 + s) * 1000;
+            } else {
+              targetTime = Date.now() + 45 * 60 * 1000;
+            }
+          } else if (c.status === 'upcoming') {
+            const match = (c.countdown || '').match(/Starts in (\d+)h (\d+)m/);
+            if (match) {
+              const h = parseInt(match[1], 10) || 0;
+              const m = parseInt(match[2], 10) || 0;
+              targetTime = Date.now() + (h * 3600 + m * 60) * 1000;
+            } else {
+              targetTime = Date.now() + 135 * 60 * 1000; // 2h 15m fallback
+            }
+          }
+
+          return {
+            ...c,
+            targetTime,
+            // default registered state (can mock/read)
+            registered: c.id === 'c1' || c.id === 'c3'
+          };
+        });
+
+        setContests(mapped);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Error fetching contests:', err);
+        setLoading(false);
+      });
+  }, []);
+
+  // Timer Tick useEffect
+  useEffect(() => {
+    if (contests.length === 0) return;
+
+    const interval = setInterval(() => {
+      setContests(prev => prev.map(c => {
+        if (!c.targetTime) return c;
+        const diff = c.targetTime - Date.now();
+        let newCountdown = '';
+        
+        if (diff <= 0) {
+          newCountdown = c.status === 'live' ? 'Ended' : 'Starting...';
+        } else {
+          const sec = Math.floor(diff / 1000) % 60;
+          const min = Math.floor(diff / (1000 * 60)) % 60;
+          const hour = Math.floor(diff / (1000 * 60 * 60));
+          const pad = (n) => String(n).padStart(2, '0');
+
+          if (c.status === 'live') {
+            newCountdown = `${pad(hour)}:${pad(min)}:${pad(sec)}`;
+          } else {
+            newCountdown = `Starts in ${hour}h ${min}m ${sec}s`;
+          }
+        }
+
+        return {
+          ...c,
+          countdown: newCountdown
+        };
+      }));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [contests.length]);
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-10 bg-bg-darker min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-4 border-brand-primary border-t-transparent animate-spin" />
+          <p className="text-slate-400 text-sm font-medium">Synchronizing competitive arena with Supabase...</p>
+        </div>
+      </div>
+    );
+  }
 
   const liveContests = contests.filter(c => c.status === 'live');
   const upcomingContests = contests.filter(c => c.status === 'upcoming');
@@ -40,10 +138,12 @@ export default function Contests() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 bg-brand-primary/10 border border-brand-primary/20 px-4 py-2.5 rounded-xl">
-          <span className="w-2.5 h-2.5 rounded-full bg-brand-primary animate-ping" />
-          <span className="text-xs text-brand-primary font-bold">1 Active Live Contest</span>
-        </div>
+        {liveContests.length > 0 && (
+          <div className="flex items-center gap-2 bg-brand-primary/10 border border-brand-primary/20 px-4 py-2.5 rounded-xl">
+            <span className="w-2.5 h-2.5 rounded-full bg-brand-primary animate-ping" />
+            <span className="text-xs text-brand-primary font-bold">{liveContests.length} Active Live Contest{liveContests.length > 1 ? 's' : ''}</span>
+          </div>
+        )}
       </div>
 
       {/* 1. LIVE CONTESTS SECTION */}
@@ -91,7 +191,7 @@ export default function Contests() {
 
                   <Link
                     id={`enter-contest-${c.id}`}
-                    to={`/contest/${c.id}`}
+                    to={isLoggedIn ? `/contest/${c.id}` : '/login'}
                     className="bg-brand-primary hover:bg-brand-primary-hover text-white text-xs font-bold px-5 py-2.5 rounded-xl transition-all shadow-md shadow-brand-primary/20"
                   >
                     Enter Arena
@@ -196,7 +296,7 @@ export default function Contests() {
                     <td className="py-4 px-6 text-right">
                       <Link
                         id={`past-contest-${c.id}`}
-                        to={`/contest/${c.id}`}
+                        to={isLoggedIn ? `/contest/${c.id}` : '/login'}
                         className="text-xs font-bold text-brand-primary hover:underline"
                       >
                         View Scoreboard &rarr;

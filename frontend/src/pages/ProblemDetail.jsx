@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { MOCK_PROBLEMS } from '../data/mockData';
 import { 
   Play, Send, RotateCcw, Copy, CheckCircle, 
   MessageSquare, ChevronRight, Terminal as TermIcon,
@@ -10,49 +9,89 @@ import {
 
 export default function ProblemDetail({ isLoggedIn, user }) {
   const { id } = useParams();
-  const problem = MOCK_PROBLEMS.find(p => p.id === id) || MOCK_PROBLEMS[0];
+  const [problem, setProblem] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   // State management
   const [activeTab, setActiveTab] = useState('description'); // description, editorial, submissions, discussion
   const [selectedLang, setSelectedLang] = useState('javascript');
-  const [code, setCode] = useState(() => problem.starterCode[selectedLang] || '');
+  const [code, setCode] = useState('');
   const [consoleTab, setConsoleTab] = useState('testcases'); // testcases, result, aihints, aianalysis
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [testCases, setTestCases] = useState(() => problem.testCases || []);
+  const [testCases, setTestCases] = useState([]);
   const [runLogs, setRunLogs] = useState('');
-  const [submissions, setSubmissions] = useState(() => [
-    { id: 1, status: "Accepted", runtime: "4ms", memory: "41.2 MB", lang: "JavaScript", time: "10 mins ago" },
-    { id: 2, status: "Wrong Answer", runtime: "N/A", memory: "N/A", lang: "Python", time: "2 hours ago" }
-  ]);
+  const [submissions, setSubmissions] = useState([]);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [submitResult, setSubmitResult] = useState(null);
 
   // Discussion state
   const [newComment, setNewComment] = useState('');
-  const [discussions, setDiscussions] = useState(() => problem.discussion || []);
+  const [discussions, setDiscussions] = useState([]);
 
   // AI features state
   const [hintsRevealed, setHintsRevealed] = useState(0);
   const [aiCodeReview, setAiCodeReview] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // Sync starter code and data on change
-  const [prevProblemId, setPrevProblemId] = useState(problem.id);
-  const [prevSelectedLang, setPrevSelectedLang] = useState(selectedLang);
+  useEffect(() => {
+    setLoading(true);
+    const token = localStorage.getItem('syntiq_token');
 
-  if (problem.id !== prevProblemId || selectedLang !== prevSelectedLang) {
-    setPrevProblemId(problem.id);
-    setPrevSelectedLang(selectedLang);
-    setCode(problem.starterCode[selectedLang] || '');
-    setTestCases(problem.testCases || []);
-    setDiscussions(problem.discussion || []);
-    setSubmissions([
-      { id: 1, status: "Accepted", runtime: "4ms", memory: "41.2 MB", lang: "JavaScript", time: "10 mins ago" },
-      { id: 2, status: "Wrong Answer", runtime: "N/A", memory: "N/A", lang: "Python", time: "2 hours ago" }
-    ]);
-  }
+    // 1. Fetch problem details
+    const fetchProblemDetail = fetch(`http://localhost:5000/api/problems/${id}`)
+      .then(res => res.json())
+      .then(data => data.problem || null)
+      .catch(err => {
+        console.error('Error fetching problem details:', err);
+        return null;
+      });
+
+    // 2. Fetch submissions for this problem
+    const fetchProblemSubmissions = token
+      ? fetch('http://localhost:5000/api/submissions', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+          .then(res => res.json())
+          .then(data => {
+            const list = data.submissions || [];
+            return list.filter(s => s.problemId === id);
+          })
+          .catch(err => {
+            console.error('Error fetching submissions:', err);
+            return [];
+          })
+      : Promise.resolve([]);
+
+    Promise.all([fetchProblemDetail, fetchProblemSubmissions]).then(([probData, subsData]) => {
+      if (probData) {
+        setProblem(probData);
+        setCode(probData.starterCode?.[selectedLang] || '');
+        setTestCases(probData.testCases || []);
+        setDiscussions(probData.discussion || []);
+        
+        // Format submissions
+        const formattedSubs = subsData.map(s => ({
+          id: s.id,
+          status: s.status,
+          runtime: s.runtime || 'N/A',
+          memory: s.memory || 'N/A',
+          lang: s.language ? (s.language.charAt(0).toUpperCase() + s.language.slice(1)) : 'JavaScript',
+          time: new Date(s.submittedAt).toLocaleDateString()
+        }));
+        setSubmissions(formattedSubs);
+      }
+      setLoading(false);
+    });
+  }, [id]);
+
+  // Sync starter code on language change
+  useEffect(() => {
+    if (problem) {
+      setCode(problem.starterCode?.[selectedLang] || '');
+    }
+  }, [selectedLang, problem]);
 
   // Copy code utility
   const handleCopyCode = () => {
@@ -166,10 +205,6 @@ export default function ProblemDetail({ isLoggedIn, user }) {
           time: "Just now"
         };
         setSubmissions([newSub, ...submissions]);
-        
-        if (submission.status === 'Accepted') {
-          problem.status = 'solved';
-        }
       } else {
         setConsoleTab('result');
         setRunLogs(`Submission Error: ${data.message || 'Failed to submit code.'}`);
@@ -188,8 +223,8 @@ export default function ProblemDetail({ isLoggedIn, user }) {
     if (!newComment.trim()) return;
 
     const comm = {
-      user: "current_user",
-      avatar: "U",
+      user: user?.username || "current_user",
+      avatar: (user?.username || "C").charAt(0).toUpperCase(),
       text: newComment,
       time: "Just now",
       replies: []
@@ -228,6 +263,30 @@ export default function ProblemDetail({ isLoggedIn, user }) {
       );
     }, 1800);
   };
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-10 bg-bg-darker min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-4 border-brand-primary border-t-transparent animate-spin" />
+          <p className="text-slate-400 text-sm font-medium">Synchronizing workspace details with Supabase...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!problem) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-10 bg-bg-darker min-h-screen text-center text-slate-400">
+        <Shield className="w-16 h-16 text-brand-error/60 mx-auto mb-4" />
+        <h2 className="text-xl font-bold text-white mb-2">Problem Not Found</h2>
+        <p className="text-xs mb-6">The coding challenge you are trying to view does not exist or has been deleted.</p>
+        <Link to="/dashboard" className="bg-brand-primary hover:bg-brand-primary-hover text-white text-xs font-bold px-6 py-3 rounded-xl transition-all">
+          Back to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   // Count lines for editor column
   const lineCount = code.split('\n').length;
@@ -354,7 +413,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
                 <div className="space-y-2">
                   <h3 className="text-sm font-bold text-white">Constraints:</h3>
                   <ul className="list-disc list-inside text-xs text-slate-400 font-mono space-y-1 pl-1">
-                    {problem.constraints.map((c, idx) => (
+                    {problem.constraints?.map((c, idx) => (
                       <li key={idx}>{c}</li>
                     ))}
                   </ul>
@@ -367,7 +426,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
               <div className="space-y-4">
                 <h2 className="text-lg font-bold text-white">Official Solution & Editorial</h2>
                 <div className="prose prose-invert text-sm text-slate-300 whitespace-pre-wrap leading-relaxed font-sans">
-                  {problem.editorial}
+                  {problem.editorial || 'No official editorial available yet for this challenge.'}
                 </div>
               </div>
             )}
@@ -377,28 +436,32 @@ export default function ProblemDetail({ isLoggedIn, user }) {
               <div className="space-y-4">
                 <h2 className="text-sm font-bold text-white uppercase tracking-wider">My Submissions</h2>
                 <div className="space-y-2">
-                  {submissions.map((sub) => (
-                    <div 
-                      key={sub.id} 
-                      className="bg-bg-panel border border-white/5 rounded-xl p-4 flex items-center justify-between text-xs hover:border-white/10 transition-all"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className={`font-bold ${sub.status === 'Accepted' ? 'text-brand-success' : 'text-brand-error'}`}>
-                            {sub.status}
-                          </span>
-                          <span className="text-slate-500">•</span>
-                          <span className="text-slate-300">{sub.lang}</span>
+                  {submissions.length > 0 ? (
+                    submissions.map((sub) => (
+                      <div 
+                        key={sub.id} 
+                        className="bg-bg-panel border border-white/5 rounded-xl p-4 flex items-center justify-between text-xs hover:border-white/10 transition-all"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className={`font-bold ${sub.status === 'Accepted' ? 'text-brand-success' : 'text-brand-error'}`}>
+                              {sub.status}
+                            </span>
+                            <span className="text-slate-500">•</span>
+                            <span className="text-slate-300">{sub.lang}</span>
+                          </div>
+                          <div className="text-slate-500">Submitted {sub.time}</div>
                         </div>
-                        <div className="text-slate-500">Submitted {sub.time}</div>
-                      </div>
 
-                      <div className="text-right">
-                        <div className="text-slate-300 font-mono">Runtime: {sub.runtime}</div>
-                        <div className="text-slate-500 font-mono">Memory: {sub.memory}</div>
+                        <div className="text-right">
+                          <div className="text-slate-300 font-mono">Runtime: {sub.runtime}</div>
+                          <div className="text-slate-500 font-mono">Memory: {sub.memory}</div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <p className="text-slate-500 text-xs py-4 text-center">No submissions yet for this problem.</p>
+                  )}
                 </div>
               </div>
             )}
@@ -428,34 +491,38 @@ export default function ProblemDetail({ isLoggedIn, user }) {
 
                 {/* Discussions List */}
                 <div className="space-y-4 border-t border-white/5 pt-4">
-                  {discussions.map((disc, idx) => (
-                    <div key={idx} className="space-y-3 text-xs border-b border-white/5 pb-4 last:border-0">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-brand-primary/20 flex items-center justify-center font-bold text-[10px] text-brand-primary">
-                          {disc.avatar}
-                        </div>
-                        <span className="font-bold text-slate-300">{disc.user}</span>
-                        <span className="text-slate-500">{disc.time}</span>
-                      </div>
-                      <p className="text-slate-400 pl-8">{disc.text}</p>
-
-                      {/* Replies */}
-                      {disc.replies && disc.replies.map((rep, rIdx) => (
-                        <div key={rIdx} className="pl-8 space-y-2 mt-2">
-                          <div className="bg-bg-panel/40 border border-white/5 rounded-lg p-3">
-                            <div className="flex items-center gap-2 mb-1">
-                              <div className="w-5 h-5 rounded-full bg-brand-success/20 flex items-center justify-center font-bold text-[8px] text-brand-success">
-                                {rep.avatar}
-                              </div>
-                              <span className="font-bold text-slate-300">{rep.user}</span>
-                              <span className="text-slate-500">{rep.time}</span>
-                            </div>
-                            <p className="text-slate-400 pl-7">{rep.text}</p>
+                  {discussions.length > 0 ? (
+                    discussions.map((disc, idx) => (
+                      <div key={idx} className="space-y-3 text-xs border-b border-white/5 pb-4 last:border-0">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-brand-primary/20 flex items-center justify-center font-bold text-[10px] text-brand-primary">
+                            {disc.avatar}
                           </div>
+                          <span className="font-bold text-slate-300">{disc.user}</span>
+                          <span className="text-slate-500">{disc.time}</span>
                         </div>
-                      ))}
-                    </div>
-                  ))}
+                        <p className="text-slate-400 pl-8">{disc.text}</p>
+
+                        {/* Replies */}
+                        {disc.replies && disc.replies.map((rep, rIdx) => (
+                          <div key={rIdx} className="pl-8 space-y-2 mt-2">
+                            <div className="bg-bg-panel/40 border border-white/5 rounded-lg p-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className="w-5 h-5 rounded-full bg-brand-success/20 flex items-center justify-center font-bold text-[8px] text-brand-success">
+                                  {rep.avatar}
+                                </div>
+                                <span className="font-bold text-slate-300">{rep.user}</span>
+                                <span className="text-slate-500">{rep.time}</span>
+                              </div>
+                              <p className="text-slate-400 pl-7">{rep.text}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-slate-500 text-xs py-4 text-center">No discussion posts yet. Be the first to start a conversation!</p>
+                  )}
                 </div>
 
               </div>
@@ -650,7 +717,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
                       {hintsRevealed >= 2 ? (
                         <div className="bg-bg-panel border border-white/5 rounded-lg p-3 space-y-1">
                           <div className="text-brand-primary font-bold">Hint 2 of 3:</div>
-                          <p className="text-slate-300">For each index `i` with value `nums[i]`, we need to check if `target - nums[i]` exists in the Hash Map.</p>
+                          <p className="text-slate-300">For each index \`i\` with value \`nums[i]\`, we need to check if \`target - nums[i]\` exists in the Hash Map.</p>
                         </div>
                       ) : (
                         <button 
@@ -664,7 +731,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
                       {hintsRevealed >= 3 ? (
                         <div className="bg-bg-panel border border-white/5 rounded-lg p-3 space-y-1">
                           <div className="text-brand-primary font-bold">Hint 3 of 3:</div>
-                          <p className="text-slate-300">Return the indices array `[map.get(target - nums[i]), i]`. That provides an index from map and the current iterator in O(N) runtime.</p>
+                          <p className="text-slate-300">Return the indices array \`[map.get(target - nums[i]), i]\`. That provides an index from map and the current iterator in O(N) runtime.</p>
                         </div>
                       ) : hintsRevealed === 2 ? (
                         <button 

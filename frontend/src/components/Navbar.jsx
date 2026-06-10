@@ -61,7 +61,7 @@ export default function Navbar({ isLoggedIn, setIsLoggedIn, user }) {
         {isLoggedIn ? (
           <div className="flex items-center gap-4">
             <Link 
-              to={`/profile/${displayName}`}
+              to={`/profile/${encodeURIComponent(displayName)}`}
               className="flex items-center gap-2 group px-3 py-1.5 rounded-lg hover:bg-white/5 transition-all"
             >
               <div className="w-8 h-8 rounded-full bg-brand-primary/20 flex items-center justify-center text-brand-primary border border-brand-primary/40 font-bold overflow-hidden">

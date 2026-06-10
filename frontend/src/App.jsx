@@ -74,8 +74,8 @@ function App() {
             <Route path="/login" element={<Login onLogin={handleLogin} />} />
             <Route path="/signup" element={<Signup onLogin={handleLogin} />} />
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/contests" element={<Contests />} />
-            <Route path="/contest/:id" element={<ContestDetail />} />
+            <Route path="/contests" element={<Contests isLoggedIn={isLoggedIn} />} />
+            <Route path="/contest/:id" element={<ContestDetail isLoggedIn={isLoggedIn} />} />
             <Route path="/problem/:id" element={<ProblemDetail isLoggedIn={isLoggedIn} user={user} />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/profile/:username" element={<Profile />} />

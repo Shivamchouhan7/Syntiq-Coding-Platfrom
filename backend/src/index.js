@@ -6,6 +6,22 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import problemRoutes from './routes/problems.js';
 import submissionRoutes from './routes/submissions.js';
+import userRoutes from './routes/users.js';
+import contestRoutes from './routes/contests.js';
+import supabase from "./utils/supabase.js";
+
+
+const testConnection = async () => {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .limit(1);
+
+  console.log("Data:", data);
+  console.log("Error:", error);
+};
+
+testConnection();
 
 // Load environment variables
 dotenv.config();
@@ -31,6 +47,9 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/problems', problemRoutes);
 app.use('/api/submissions', submissionRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/contests', contestRoutes);
+
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -1,5 +1,31 @@
-import { getDb, saveDb } from '../models/db.js';
+import supabase from '../utils/supabase.js';
 import { runCode } from '../utils/codeRunner.js';
+
+const formatUser = (user) => {
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    fullname: user.fullname,
+    avatarColor: user.avatar_color || '#808080',
+    xp: user.xp || 0,
+    level: user.level || 1,
+    streak: user.streak || 0,
+    solvedCount: user.solved_count || { easy: 0, medium: 0, hard: 0, total: 0 },
+    skills: user.skills || {
+      "Arrays": 0,
+      "Strings": 0,
+      "DP": 0,
+      "Trees": 0,
+      "Graphs": 0,
+      "Sorting": 0
+    },
+    contestHistory: [],
+    recentSubmissions: [],
+    createdAt: user.created_at
+  };
+};
 
 export const submitCode = async (req, res) => {
   try {
@@ -20,17 +46,21 @@ export const submitCode = async (req, res) => {
       });
     }
 
-    const db = getDb();
-    const problem = db.problems.find(p => p.id === problemId);
+    // Fetch problem from database
+    const { data: problem, error: problemError } = await supabase
+      .from('problems')
+      .select('*')
+      .eq('id', problemId)
+      .maybeSingle();
 
-    if (!problem) {
+    if (problemError || !problem) {
       return res.status(404).json({
         status: 'error',
         message: 'Problem not found'
       });
     }
 
-    const testCases = problem.testCases || [];
+    const testCases = problem.test_cases || [];
     if (testCases.length === 0) {
       return res.status(400).json({
         status: 'error',
@@ -43,7 +73,7 @@ export const submitCode = async (req, res) => {
 
     // Calculate passing test cases
     const totalCount = results.length;
-    const passedCount = results.filter(r => r.status === 'passed').count || results.filter(r => r.status === 'passed').length;
+    const passedCount = results.filter(r => r.status === 'passed').length;
 
     if (action === 'run') {
       return res.json({
@@ -82,141 +112,134 @@ export const submitCode = async (req, res) => {
       ? `${(validMemories.reduce((a, b) => a + b, 0) / validMemories.length).toFixed(1)} MB`
       : 'N/A';
 
-    // Create submission record
-    const newSubmission = {
-      id: `sub_${Date.now()}`,
-      userId,
-      username: req.user.username,
-      problemId,
-      problemTitle: problem.title,
-      language,
-      code,
-      status: overallStatus,
-      runtime: averageRuntime,
-      memory: averageMemory,
-      error: firstFailed ? firstFailed.error : null,
-      createdAt: new Date().toISOString()
-    };
+    // Insert submission record into database
+    const { data: newSub, error: subError } = await supabase
+      .from('submissions')
+      .insert([{
+        user_id: userId,
+        problem_id: problemId,
+        code,
+        language,
+        status: overallStatus,
+        execution_time: averageRuntime,
+        memory_used: averageMemory
+      }])
+      .select()
+      .single();
 
-    db.submissions.push(newSubmission);
+    if (subError) throw subError;
 
-    // If Accepted, update user progress
-    let userUpdated = false;
-    const userIndex = db.users.findIndex(u => u.id === userId);
+    // Get current profile
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
 
-    if (userIndex !== -1 && overallStatus === 'Accepted') {
-      const user = db.users[userIndex];
+    let updatedProfile = profile;
 
+    if (profile && overallStatus === 'Accepted') {
       // Check if this problem was already solved by this user
-      const alreadySolved = db.submissions.some(
-        s => s.userId === userId && s.problemId === problemId && s.status === 'Accepted' && s.id !== newSubmission.id
-      );
+      const { data: prevSolved } = await supabase
+        .from('submissions')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('problem_id', problemId)
+        .eq('status', 'Accepted')
+        .neq('id', newSub.id)
+        .limit(1);
+
+      const alreadySolved = prevSolved && prevSolved.length > 0;
 
       if (!alreadySolved) {
         // Increment solved counts
-        user.solvedCount.total = (user.solvedCount.total || 0) + 1;
+        const solvedCount = profile.solved_count || { easy: 0, medium: 0, hard: 0, total: 0 };
+        solvedCount.total = (solvedCount.total || 0) + 1;
         const diffLower = problem.difficulty.toLowerCase();
-        if (user.solvedCount[diffLower] !== undefined) {
-          user.solvedCount[diffLower] = (user.solvedCount[diffLower] || 0) + 1;
+        if (solvedCount[diffLower] !== undefined) {
+          solvedCount[diffLower] = (solvedCount[diffLower] || 0) + 1;
         }
 
         // Grant XP based on difficulty
         let xpGained = 10;
         if (problem.difficulty === 'Medium') xpGained = 20;
         if (problem.difficulty === 'Hard') xpGained = 30;
-        user.xp = (user.xp || 0) + xpGained;
+        const xp = (profile.xp || 0) + xpGained;
 
         // Calculate Level-up (100 XP per level)
-        const newLevel = Math.floor(user.xp / 100) + 1;
-        user.level = newLevel;
+        const level = Math.floor(xp / 100) + 1;
 
         // Increment skills count
+        const skills = profile.skills || {};
         const category = problem.category || 'General';
-        if (user.skills[category] !== undefined) {
-          user.skills[category] = (user.skills[category] || 0) + 1;
-        } else {
-          user.skills[category] = 1;
-        }
+        skills[category] = (skills[category] || 0) + 1;
 
         // Streak calculation
-        const userAccepted = db.submissions.filter(
-          s => s.userId === userId && s.status === 'Accepted' && s.id !== newSubmission.id
-        );
+        let streak = profile.streak || 0;
+        const { data: userAccepted } = await supabase
+          .from('submissions')
+          .select('created_at')
+          .eq('user_id', userId)
+          .eq('status', 'Accepted')
+          .neq('id', newSub.id)
+          .order('created_at', { ascending: false });
 
-        if (userAccepted.length === 0) {
-          user.streak = 1;
+        if (!userAccepted || userAccepted.length === 0) {
+          streak = 1;
         } else {
-          // Sort to find the most recent previous accepted submission
-          userAccepted.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
           const latestPrev = userAccepted[0];
-          
           const todayStr = new Date().toISOString().split('T')[0];
-          const lastSubDateStr = new Date(latestPrev.createdAt).toISOString().split('T')[0];
+          const lastSubDateStr = new Date(latestPrev.created_at).toISOString().split('T')[0];
           
           const diffTime = new Date(todayStr) - new Date(lastSubDateStr);
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
           if (diffDays === 1) {
-            user.streak = (user.streak || 0) + 1;
+            streak = streak + 1;
           } else if (diffDays > 1) {
-            user.streak = 1;
+            streak = 1;
           }
-          // if diffDays === 0, keep current streak
         }
 
-        userUpdated = true;
+        // Update profile in DB
+        const { data: newProfile, error: updateError } = await supabase
+          .from('profiles')
+          .update({
+            xp,
+            level,
+            streak,
+            solved_count: solvedCount,
+            skills
+          })
+          .eq('id', userId)
+          .select()
+          .single();
+
+        if (!updateError) {
+          updatedProfile = newProfile;
+        }
       }
-
-      // Add to user's recent submissions list (limit to 10)
-      user.recentSubmissions = [
-        {
-          id: newSubmission.id,
-          problemId: problem.id,
-          problemTitle: problem.title,
-          status: overallStatus,
-          language,
-          createdAt: newSubmission.createdAt
-        },
-        ...(user.recentSubmissions || [])
-      ].slice(0, 10);
-
-      db.users[userIndex] = user;
-      userUpdated = true;
-    } else if (userIndex !== -1) {
-      // Just record the failed submission to recentSubmissions
-      const user = db.users[userIndex];
-      user.recentSubmissions = [
-        {
-          id: newSubmission.id,
-          problemId: problem.id,
-          problemTitle: problem.title,
-          status: overallStatus,
-          language,
-          createdAt: newSubmission.createdAt
-        },
-        ...(user.recentSubmissions || [])
-      ].slice(0, 10);
-
-      db.users[userIndex] = user;
-      userUpdated = true;
-    }
-
-    saveDb(db);
-
-    // Exclude password from returned user info
-    let returnedUser = null;
-    if (userIndex !== -1) {
-      const { password, ...safeUser } = db.users[userIndex];
-      returnedUser = safeUser;
     }
 
     res.json({
       status: 'success',
       action: 'submit',
-      submission: newSubmission,
+      submission: {
+        id: newSub.id,
+        userId: newSub.user_id,
+        username: profile?.username || 'Unknown',
+        problemId: newSub.problem_id,
+        problemTitle: problem.title,
+        language: newSub.language,
+        code: newSub.code,
+        status: newSub.status,
+        runtime: newSub.execution_time,
+        memory: newSub.memory_used,
+        createdAt: newSub.created_at
+      },
       passedCount,
       totalCount,
-      user: returnedUser
+      user: formatUser(updatedProfile)
     });
 
   } catch (error) {
@@ -228,20 +251,48 @@ export const submitCode = async (req, res) => {
   }
 };
 
-export const getSubmissionsHistory = (req, res) => {
+export const getSubmissionsHistory = async (req, res) => {
   try {
     const { problemId } = req.query;
     const userId = req.user.id;
-    const db = getDb();
 
-    let submissionsList = db.submissions.filter(s => s.userId === userId);
+    let query = supabase
+      .from('submissions')
+      .select(`
+        id,
+        user_id,
+        problem_id,
+        code,
+        language,
+        status,
+        execution_time,
+        memory_used,
+        created_at,
+        problems (
+          title
+        )
+      `)
+      .eq('user_id', userId);
 
     if (problemId) {
-      submissionsList = submissionsList.filter(s => s.problemId === problemId);
+      query = query.eq('problem_id', problemId);
     }
 
-    // Sort by createdAt descending
-    submissionsList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const { data: dbSubs, error } = await query.order('created_at', { ascending: false });
+    if (error) throw error;
+
+    const submissionsList = (dbSubs || []).map(s => ({
+      id: s.id,
+      userId: s.user_id,
+      problemId: s.problem_id,
+      problemTitle: s.problems?.title || 'Unknown Problem',
+      language: s.language,
+      code: s.code,
+      status: s.status,
+      runtime: s.execution_time,
+      memory: s.memory_used,
+      createdAt: s.created_at
+    }));
 
     res.json({
       status: 'success',
@@ -256,20 +307,50 @@ export const getSubmissionsHistory = (req, res) => {
   }
 };
 
-export const getSubmissionById = (req, res) => {
+export const getSubmissionById = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const db = getDb();
 
-    const submission = db.submissions.find(s => s.id === id && s.userId === userId);
+    const { data: s, error } = await supabase
+      .from('submissions')
+      .select(`
+        id,
+        user_id,
+        problem_id,
+        code,
+        language,
+        status,
+        execution_time,
+        memory_used,
+        created_at,
+        problems (
+          title
+        )
+      `)
+      .eq('id', id)
+      .eq('user_id', userId)
+      .maybeSingle();
 
-    if (!submission) {
+    if (error || !s) {
       return res.status(404).json({
         status: 'error',
         message: 'Submission not found or unauthorized'
       });
     }
+
+    const submission = {
+      id: s.id,
+      userId: s.user_id,
+      problemId: s.problem_id,
+      problemTitle: s.problems?.title || 'Unknown Problem',
+      language: s.language,
+      code: s.code,
+      status: s.status,
+      runtime: s.execution_time,
+      memory: s.memory_used,
+      createdAt: s.created_at
+    };
 
     res.json({
       status: 'success',

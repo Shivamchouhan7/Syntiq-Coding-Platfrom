@@ -1,26 +1,114 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { MOCK_PROBLEMS } from '../data/mockData';
 import { Search, Compass, ShieldAlert, Award, CheckCircle, HelpCircle, ArrowRight, Zap, Target } from 'lucide-react';
 
 export default function Dashboard() {
+  const [problems, setProblems] = useState([]);
+  const [userProfile, setUserProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+
   const [search, setSearch] = useState('');
   const [difficultyFilter, setDifficultyFilter] = useState('All');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
 
+  // Daily Coding Challenge Countdown
+  const [challengeTarget] = useState(() => Date.now() + (6 * 3600 + 45 * 60 + 12) * 1000);
+  const [challengeTime, setChallengeTime] = useState('');
+
   // Categories list
   const categories = ['All', 'Arrays', 'Strings', 'Trees', 'Graphs', 'DP', 'Sorting'];
 
+  useEffect(() => {
+    const token = localStorage.getItem('syntiq_token');
+    
+    // 1. Fetch problems
+    const fetchProblems = fetch('http://localhost:5000/api/problems')
+      .then(res => res.json())
+      .then(data => data.problems || [])
+      .catch(err => {
+        console.error('Fetch problems error:', err);
+        return [];
+      });
+
+    // 2. Fetch submissions if logged in
+    const fetchSubmissions = token
+      ? fetch('http://localhost:5000/api/submissions', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+          .then(res => res.json())
+          .then(data => data.submissions || [])
+          .catch(err => {
+            console.error('Fetch submissions error:', err);
+            return [];
+          })
+      : Promise.resolve([]);
+
+    // 3. Fetch user profile if logged in
+    const fetchProfile = token
+      ? fetch('http://localhost:5000/api/auth/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+          .then(res => res.json())
+          .then(data => data.user || null)
+          .catch(err => {
+            console.error('Fetch profile error:', err);
+            return null;
+          })
+      : Promise.resolve(null);
+
+    Promise.all([fetchProblems, fetchSubmissions, fetchProfile])
+      .then(([probs, subs, profile]) => {
+        // Map submission status to problems
+        const mapped = probs.map(p => {
+          const problemSubs = subs.filter(s => s.problemId === p.id);
+          let status = 'new';
+          if (problemSubs.some(s => s.status === 'Accepted')) {
+            status = 'solved';
+          } else if (problemSubs.length > 0) {
+            status = 'attempted';
+          }
+          return { ...p, status };
+        });
+        setProblems(mapped);
+        setUserProfile(profile);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Error combining dashboard data:', err);
+        setLoading(false);
+      });
+  }, []);
+
+  // Challenge countdown tick
+  useEffect(() => {
+    const updateTime = () => {
+      const diff = challengeTarget - Date.now();
+      if (diff <= 0) {
+        setChallengeTime('Ended');
+        return;
+      }
+      const sec = Math.floor(diff / 1000) % 60;
+      const min = Math.floor(diff / (1000 * 60)) % 60;
+      const hour = Math.floor(diff / (1000 * 60 * 60));
+      const pad = (n) => String(n).padStart(2, '0');
+      setChallengeTime(`${pad(hour)}:${pad(min)}:${pad(sec)}`);
+    };
+
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, [challengeTarget]);
+
   // Handle filtering
-  const problems = useMemo(() => {
-    let filtered = MOCK_PROBLEMS;
+  const filteredProblems = useMemo(() => {
+    let filtered = problems;
 
     // Search filter
     if (search.trim()) {
       filtered = filtered.filter(p => 
         p.title.toLowerCase().includes(search.toLowerCase()) ||
-        p.statement.toLowerCase().includes(search.toLowerCase())
+        (p.statement && p.statement.toLowerCase().includes(search.toLowerCase()))
       );
     }
 
@@ -40,15 +128,26 @@ export default function Dashboard() {
     }
 
     return filtered;
-  }, [search, difficultyFilter, categoryFilter, statusFilter]);
+  }, [problems, search, difficultyFilter, categoryFilter, statusFilter]);
 
   // Count user stats
-  const totalSolved = MOCK_PROBLEMS.filter(p => p.status === 'solved').length;
-  const totalCount = MOCK_PROBLEMS.length;
-  const progressPercent = Math.round((totalSolved / totalCount) * 100);
+  const totalSolved = problems.filter(p => p.status === 'solved').length;
+  const totalCount = problems.length;
+  const progressPercent = totalCount > 0 ? Math.round((totalSolved / totalCount) * 100) : 0;
 
   // Recommended problem
-  const recommendedProblem = MOCK_PROBLEMS.find(p => p.recommended && p.status !== 'solved') || MOCK_PROBLEMS[0];
+  const recommendedProblem = problems.find(p => p.recommended && p.status !== 'solved') || problems[0];
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-10 bg-bg-darker min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-4 border-brand-primary border-t-transparent animate-spin" />
+          <p className="text-slate-400 text-sm font-medium">Synchronizing with Supabase...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-10 bg-bg-darker min-h-screen">
@@ -73,7 +172,7 @@ export default function Dashboard() {
             </div>
             <div>
               <div className="text-xs text-slate-400 font-medium">Streak</div>
-              <div className="text-sm font-bold text-white">28 Days</div>
+              <div className="text-sm font-bold text-white">{userProfile ? `${userProfile.streak} Days` : '0 Days'}</div>
             </div>
           </div>
           <div className="bg-bg-panel border border-white/5 rounded-xl px-4 py-2.5 flex items-center gap-3">
@@ -81,8 +180,8 @@ export default function Dashboard() {
               <Award className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xs text-slate-400 font-medium">Rating</div>
-              <div className="text-sm font-bold text-white">1,824</div>
+              <div className="text-xs text-slate-400 font-medium">XP</div>
+              <div className="text-sm font-bold text-white">{userProfile ? userProfile.xp : 0}</div>
             </div>
           </div>
         </div>
@@ -163,7 +262,7 @@ export default function Dashboard() {
           <div className="bg-bg-panel border border-white/5 rounded-xl overflow-hidden">
             <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-bg-panel/50">
               <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Showing {problems.length} Problem{problems.length !== 1 && 's'}
+                Showing {filteredProblems.length} Problem{filteredProblems.length !== 1 && 's'}
               </span>
             </div>
 
@@ -180,8 +279,8 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
-                  {problems.length > 0 ? (
-                    problems.map((prob) => (
+                  {filteredProblems.length > 0 ? (
+                    filteredProblems.map((prob) => (
                       <tr 
                         key={prob.id} 
                         className="hover:bg-white/[0.02] transition-colors group"
@@ -210,7 +309,7 @@ export default function Dashboard() {
                         {/* Category Tag */}
                         <td className="py-4 px-6">
                           <span className="text-xs text-slate-400 font-medium px-2.5 py-1 rounded-md bg-white/5">
-                            {prob.category}
+                            {prob.category || 'General'}
                           </span>
                         </td>
 
@@ -227,7 +326,7 @@ export default function Dashboard() {
 
                         {/* Acceptance */}
                         <td className="py-4 px-6 text-sm text-slate-400 font-medium">
-                          {prob.acceptance}
+                          {prob.acceptance || '0%'}
                         </td>
 
                         {/* Action Link */}
@@ -283,19 +382,19 @@ export default function Dashboard() {
             <div className="grid grid-cols-3 gap-2 text-center text-xs">
               <div className="bg-bg-darker rounded-lg p-2 border border-white/5">
                 <div className="text-brand-success font-bold text-sm">
-                  {MOCK_PROBLEMS.filter(p => p.difficulty === 'Easy' && p.status === 'solved').length}
+                  {problems.filter(p => p.difficulty === 'Easy' && p.status === 'solved').length}
                 </div>
                 <div className="text-slate-400">Easy</div>
               </div>
               <div className="bg-bg-darker rounded-lg p-2 border border-white/5">
                 <div className="text-brand-warning font-bold text-sm">
-                  {MOCK_PROBLEMS.filter(p => p.difficulty === 'Medium' && p.status === 'solved').length}
+                  {problems.filter(p => p.difficulty === 'Medium' && p.status === 'solved').length}
                 </div>
                 <div className="text-slate-400">Medium</div>
               </div>
               <div className="bg-bg-darker rounded-lg p-2 border border-white/5">
                 <div className="text-brand-error font-bold text-sm">
-                  {MOCK_PROBLEMS.filter(p => p.difficulty === 'Hard' && p.status === 'solved').length}
+                  {problems.filter(p => p.difficulty === 'Hard' && p.status === 'solved').length}
                 </div>
                 <div className="text-slate-400">Hard</div>
               </div>
@@ -317,7 +416,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between border-t border-white/5 pt-4">
               <div>
                 <span className="text-[10px] text-slate-500 block uppercase font-medium">Ends In</span>
-                <span className="text-sm font-bold text-slate-300 font-mono">06:45:12</span>
+                <span className="text-sm font-bold text-slate-300 font-mono">{challengeTime}</span>
               </div>
               
               <Link
