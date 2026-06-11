@@ -1,38 +1,79 @@
 import { useState } from 'react';
-import { Trophy, Search, UserPlus, UserMinus, Star, Flame, Sparkles } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Trophy, Search, UserPlus, UserMinus, Star, Flame, Sparkles, Shield, LogIn, Loader2, X } from 'lucide-react';
+import { API_BASE } from '../config';
 
 const MOCK_LEADERBOARD = [
-  { rank: 1, avatar: "A", username: "alex_coder", rating: 2840, solved: 342, streak: 45, isFriend: false },
-  { rank: 2, avatar: "S", username: "sarah_dev", rating: 2610, solved: 298, streak: 12, isFriend: true },
-  { rank: 3, avatar: "M", username: "mike_algorithms", rating: 2490, solved: 275, streak: 8, isFriend: false },
-  { rank: 4, avatar: "K", username: "kate_structs", rating: 2210, solved: 189, streak: 0, isFriend: false },
-  { rank: 5, avatar: "J", username: "john_dp", rating: 1980, solved: 145, streak: 3, isFriend: false }
+  { rank: 1, avatar: "A", username: "alex_coder", rating: 2840, solved: 342, streak: 45 },
+  { rank: 2, avatar: "S", username: "sarah_dev", rating: 2610, solved: 298, streak: 12 },
+  { rank: 3, avatar: "M", username: "mike_algorithms", rating: 2490, solved: 275, streak: 8 },
+  { rank: 4, avatar: "K", username: "kate_structs", rating: 2210, solved: 189, streak: 0 },
+  { rank: 5, avatar: "J", username: "john_dp", rating: 1980, solved: 145, streak: 3 }
 ];
 
-export default function Leaderboard() {
+export default function Leaderboard({ isLoggedIn, user, setUser }) {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('global'); // global, friends
   const [leaderboardData, setLeaderboardData] = useState(MOCK_LEADERBOARD);
+  const [isToggling, setIsToggling] = useState(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
+  const userFriends = user?.friends || [];
 
-  const handleToggleFriend = (username) => {
-    setLeaderboardData(prev =>
-      prev.map(user =>
-        user.username === username ? { ...user, isFriend: !user.isFriend } : user
-      )
-    );
+  const handleToggleFriend = async (targetUsername) => {
+    if (!isLoggedIn) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    setIsToggling(targetUsername);
+    setErrorMessage('');
+
+    try {
+      const token = localStorage.getItem('syntiq_token');
+      const res = await fetch(`${API_BASE}/users/toggle-friend`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ friendUsername: targetUsername })
+      });
+
+      const data = await res.json();
+
+      if (data.status === 'success' && data.friends) {
+        const updatedUser = { ...user, friends: data.friends };
+        setUser(updatedUser);
+        localStorage.setItem('syntiq_user', JSON.stringify(updatedUser));
+      } else {
+        setErrorMessage(data.message || 'Failed to update friend status');
+      }
+    } catch (err) {
+      setErrorMessage('Unable to connect to server. Please try again later.');
+    } finally {
+      setIsToggling(null);
+    }
   };
 
-  const filteredData = leaderboardData.filter(user => {
-    const matchesSearch = user.username.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredData = leaderboardData.map(item => ({
+    ...item,
+    isFriend: userFriends.includes(item.username)
+  })).filter(item => {
+    const matchesSearch = item.username.toLowerCase().includes(searchQuery.toLowerCase());
     if (activeTab === 'friends') {
-      return matchesSearch && user.isFriend;
+      return matchesSearch && item.isFriend;
     }
     return matchesSearch;
   });
 
   // Split top 3 for special display
-  const topThree = leaderboardData.slice(0, 3);
+  const topThree = leaderboardData.slice(0, 3).map(item => ({
+    ...item,
+    isFriend: userFriends.includes(item.username)
+  }));
 
   return (
     <div className="min-h-[calc(100vh-76px)] bg-bg-darker text-white py-12 px-4 sm:px-6 relative overflow-hidden">
@@ -196,31 +237,46 @@ export default function Leaderboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 text-sm">
-                {filteredData.length > 0 ? (
-                  filteredData.map((user) => (
+                {!isLoggedIn && activeTab === 'friends' ? (
+                  <tr>
+                    <td colSpan="6" className="py-12 text-center text-slate-500">
+                      <div className="flex flex-col items-center justify-center py-6">
+                        <Shield className="w-12 h-12 text-brand-primary/30 mb-3" />
+                        <p className="text-slate-400 mb-4 max-w-xs font-sans">Please log in to view and manage your friends list.</p>
+                        <Link
+                          to="/login"
+                          className="bg-brand-primary hover:bg-brand-primary-hover text-white text-xs font-bold px-5 py-2.5 rounded-xl transition-all shadow-md shadow-brand-primary/20"
+                        >
+                          Log In
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredData.length > 0 ? (
+                  filteredData.map((competitor) => (
                     <tr
-                      key={user.username}
+                      key={competitor.username}
                       className="hover:bg-white/[0.02] transition-colors group"
                     >
                       {/* Rank */}
                       <td className="py-4 px-6 font-bold text-center w-20">
-                        {user.rank === 1 && <span className="text-brand-warning">🥇 1</span>}
-                        {user.rank === 2 && <span className="text-slate-400">🥈 2</span>}
-                        {user.rank === 3 && <span className="text-amber-700">🥉 3</span>}
-                        {user.rank > 3 && <span className="text-slate-500">{user.rank}</span>}
+                        {competitor.rank === 1 && <span className="text-brand-warning">🥇 1</span>}
+                        {competitor.rank === 2 && <span className="text-slate-400">🥈 2</span>}
+                        {competitor.rank === 3 && <span className="text-amber-700">🥉 3</span>}
+                        {competitor.rank > 3 && <span className="text-slate-500">{competitor.rank}</span>}
                       </td>
 
                       {/* User Avatar + Username */}
                       <td className="py-4 px-6">
                         <div className="flex items-center gap-3">
-                          <div className={`w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center font-bold text-slate-300 ${user.rank === 1 ? 'border-brand-warning/40 text-brand-warning' : ''}`}>
-                            {user.avatar}
+                          <div className={`w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center font-bold text-slate-300 ${competitor.rank === 1 ? 'border-brand-warning/40 text-brand-warning' : ''}`}>
+                            {competitor.avatar}
                           </div>
                           <div>
                             <span className="font-semibold text-white group-hover:text-brand-primary transition-colors block">
-                              {user.username}
+                              {competitor.username}
                             </span>
-                            {user.isFriend && (
+                            {competitor.isFriend && (
                               <span className="inline-flex items-center gap-1 text-[10px] text-brand-success font-semibold mt-0.5">
                                 <Star className="w-2.5 h-2.5 fill-brand-success" />
                                 Friend
@@ -232,28 +288,28 @@ export default function Leaderboard() {
 
                       {/* Solved Problems */}
                       <td className="py-4 px-6 text-center font-semibold text-slate-200">
-                        {user.solved}
+                        {competitor.solved}
                       </td>
 
                       {/* Rating */}
                       <td className="py-4 px-6 text-center">
                         <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${
-                          user.rating >= 2500 
+                          competitor.rating >= 2500 
                             ? 'bg-brand-error/10 text-brand-error border border-brand-error/20' 
-                            : user.rating >= 2000 
+                            : competitor.rating >= 2000 
                             ? 'bg-brand-warning/10 text-brand-warning border border-brand-warning/20'
                             : 'bg-brand-primary/10 text-brand-primary border border-brand-primary/20'
                         }`}>
-                          {user.rating}
+                          {competitor.rating}
                         </span>
                       </td>
 
                       {/* Streak */}
                       <td className="py-4 px-6 text-center">
-                        {user.streak > 0 ? (
+                        {competitor.streak > 0 ? (
                           <span className="inline-flex items-center gap-1 text-brand-warning font-semibold">
                             <Flame className="w-4 h-4 fill-brand-warning" />
-                            {user.streak}d
+                            {competitor.streak}d
                           </span>
                         ) : (
                           <span className="text-slate-500">-</span>
@@ -263,14 +319,17 @@ export default function Leaderboard() {
                       {/* Actions */}
                       <td className="py-4 px-6 text-right">
                         <button
-                          onClick={() => handleToggleFriend(user.username)}
+                          onClick={() => handleToggleFriend(competitor.username)}
+                          disabled={isToggling === competitor.username}
                           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                            user.isFriend
+                            competitor.isFriend
                               ? 'bg-white/5 border-white/10 hover:bg-brand-error/10 hover:border-brand-error/30 hover:text-brand-error text-slate-400'
                               : 'bg-brand-primary/10 border-brand-primary/30 text-brand-primary hover:bg-brand-primary hover:text-white'
                           }`}
                         >
-                          {user.isFriend ? (
+                          {isToggling === competitor.username ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : competitor.isFriend ? (
                             <>
                               <UserMinus className="w-3.5 h-3.5" />
                               Unfriend
@@ -287,7 +346,7 @@ export default function Leaderboard() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="6" className="py-12 text-center text-slate-500">
+                    <td colSpan="6" className="py-12 text-center text-slate-500 font-sans">
                       No competitors found matching your filters.
                     </td>
                   </tr>
@@ -297,6 +356,54 @@ export default function Leaderboard() {
           </div>
         </div>
       </div>
+
+      {/* LOGIN REQUIRED MODAL */}
+      {showLoginModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-bg-panel border border-brand-primary/30 w-full max-w-sm rounded-2xl p-6 glow-accent relative animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => setShowLoginModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors animate-in duration-100"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-full bg-brand-primary/10 flex items-center justify-center text-brand-primary mb-4 border border-brand-primary/30 glow-accent">
+                <Shield className="w-8 h-8" />
+              </div>
+              
+              <h3 className="text-xl font-bold text-white">Login Required</h3>
+              <p className="text-sm text-slate-400 mt-2 leading-relaxed">
+                You need to be logged in to add friends or customize your standings dashboard.
+              </p>
+              
+              <div className="flex gap-3 w-full mt-6">
+                <button
+                  onClick={() => setShowLoginModal(false)}
+                  className="flex-1 bg-white/5 hover:bg-white/10 text-white text-xs font-bold py-3 rounded-xl border border-white/10 transition-colors"
+                >
+                  Cancel
+                </button>
+                <Link
+                  to="/login"
+                  className="flex-1 bg-brand-primary hover:bg-brand-primary-hover text-white text-xs font-bold py-3 rounded-xl transition-all shadow-md shadow-brand-primary/25 text-center flex items-center justify-center gap-1.5"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  Sign In
+                </Link>
+              </div>
+
+              <p className="text-xs text-slate-500 mt-4">
+                Don't have an account?{' '}
+                <Link to="/signup" className="text-brand-primary hover:text-brand-primary-hover font-semibold transition-colors">
+                  Sign Up
+                </Link>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
