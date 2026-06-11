@@ -11,8 +11,7 @@ import ContestDetail from './pages/ContestDetail';
 import ProblemDetail from './pages/ProblemDetail';
 import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
-
-const API_BASE = 'http://localhost:5000/api';
+import { API_BASE } from './config';
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);

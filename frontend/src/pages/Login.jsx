@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { API_BASE } from '../config';
 import { Link, useNavigate } from 'react-router-dom';
 import { Terminal, Globe, Eye, EyeOff, Loader2 } from 'lucide-react';
 
@@ -35,7 +36,7 @@ export default function Login({ onLogin }) {
     setErrorMsg('');
 
     try {
-      const res = await fetch('http://localhost:5000/api/auth/login', {
+      const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: email, password })

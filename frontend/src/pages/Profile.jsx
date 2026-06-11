@@ -1,6 +1,7 @@
 import { Flame, Award, Calendar, CheckCircle2, XCircle, AlertTriangle, BarChart3, Star } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import { API_BASE } from '../config';
 
 const DEFAULT_PROFILE = {
   username: "Anonymous Coder",
@@ -33,7 +34,7 @@ export default function Profile() {
 
     setLoading(true);
     const encoded = encodeURIComponent(username);
-    fetch(`http://localhost:5000/api/users/${encoded}`)
+    fetch(`${API_BASE}/users/${encoded}`)
       .then(res => {
         if (!res.ok) throw new Error('Not found');
         return res.json();

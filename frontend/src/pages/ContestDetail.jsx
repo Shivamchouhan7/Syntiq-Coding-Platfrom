@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from '../config';
 import { useParams, Link } from 'react-router-dom';
 import { Trophy, ShieldAlert, Award, FileCode, Timer, CheckCircle, Flame } from 'lucide-react';
 
@@ -12,7 +13,7 @@ export default function ContestDetail({ isLoggedIn }) {
 
   useEffect(() => {
     // 1. Fetch contest details
-    const fetchContest = fetch(`http://localhost:5000/api/contests/${id}`)
+    const fetchContest = fetch(`${API_BASE}/contests/${id}`)
       .then(res => res.json())
       .then(data => data.contest || null)
       .catch(err => {
@@ -21,7 +22,7 @@ export default function ContestDetail({ isLoggedIn }) {
       });
 
     // 2. Fetch problems
-    const fetchProblems = fetch('http://localhost:5000/api/problems')
+    const fetchProblems = fetch(`${API_BASE}/problems`)
       .then(res => res.json())
       .then(data => data.problems || [])
       .catch(err => {

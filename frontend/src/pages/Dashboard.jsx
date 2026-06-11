@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { API_BASE } from '../config';
 import { Link } from 'react-router-dom';
 import { Search, Compass, ShieldAlert, Award, CheckCircle, HelpCircle, ArrowRight, Zap, Target } from 'lucide-react';
 
@@ -23,7 +24,7 @@ export default function Dashboard() {
     const token = localStorage.getItem('syntiq_token');
     
     // 1. Fetch problems
-    const fetchProblems = fetch('http://localhost:5000/api/problems')
+    const fetchProblems = fetch(`${API_BASE}/problems`)
       .then(res => res.json())
       .then(data => data.problems || [])
       .catch(err => {
@@ -33,7 +34,7 @@ export default function Dashboard() {
 
     // 2. Fetch submissions if logged in
     const fetchSubmissions = token
-      ? fetch('http://localhost:5000/api/submissions', {
+      ? fetch(`${API_BASE}/submissions`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
           .then(res => res.json())
@@ -46,7 +47,7 @@ export default function Dashboard() {
 
     // 3. Fetch user profile if logged in
     const fetchProfile = token
-      ? fetch('http://localhost:5000/api/auth/me', {
+      ? fetch(`${API_BASE}/auth/me`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
           .then(res => res.json())

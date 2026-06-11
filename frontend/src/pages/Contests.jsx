@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from '../config';
 import { Link, useNavigate } from 'react-router-dom';
 import { Trophy, Calendar, Users, Clock, CheckCircle2 } from 'lucide-react';
 
@@ -29,7 +30,7 @@ export default function Contests({ isLoggedIn }) {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/contests')
+    fetch(`${API_BASE}/contests`)
       .then(res => res.json())
       .then(data => {
         const list = data.contests || [];

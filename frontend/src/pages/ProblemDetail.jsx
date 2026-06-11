@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from '../config';
 import { useParams, Link } from 'react-router-dom';
 import { 
   Play, Send, RotateCcw, Copy, CheckCircle, 
@@ -40,7 +41,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
     const token = localStorage.getItem('syntiq_token');
 
     // 1. Fetch problem details
-    const fetchProblemDetail = fetch(`http://localhost:5000/api/problems/${id}`)
+    const fetchProblemDetail = fetch(`${API_BASE}/problems/${id}`)
       .then(res => res.json())
       .then(data => data.problem || null)
       .catch(err => {
@@ -50,7 +51,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
 
     // 2. Fetch submissions for this problem
     const fetchProblemSubmissions = token
-      ? fetch('http://localhost:5000/api/submissions', {
+      ? fetch(`${API_BASE}/submissions`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
           .then(res => res.json())
@@ -125,7 +126,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
     
     try {
       const token = localStorage.getItem('syntiq_token');
-      const res = await fetch('http://localhost:5000/api/submissions', {
+      const res = await fetch(`${API_BASE}/submissions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -168,7 +169,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
     
     try {
       const token = localStorage.getItem('syntiq_token');
-      const res = await fetch('http://localhost:5000/api/submissions', {
+      const res = await fetch(`${API_BASE}/submissions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
