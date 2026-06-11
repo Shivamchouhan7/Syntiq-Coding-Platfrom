@@ -56,6 +56,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'success',
     message: 'Syntiq Backend API is running smoothly',
+    version: '1.0.3-test-toggle-friend',
     timestamp: new Date().toISOString()
   });
 });
