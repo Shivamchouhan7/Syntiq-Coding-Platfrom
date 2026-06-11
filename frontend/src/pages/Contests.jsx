@@ -26,44 +26,17 @@ export default function Contests({ isLoggedIn }) {
     }));
   };
 
+  const [now, setNow] = useState(Date.now());
+
   useEffect(() => {
     fetch('http://localhost:5000/api/contests')
       .then(res => res.json())
       .then(data => {
         const list = data.contests || [];
-        
-        // Map to include target timestamps for ticking countdowns
-        const mapped = list.map(c => {
-          let targetTime = null;
-          if (c.status === 'live') {
-            const parts = (c.countdown || '00:45:12').split(':');
-            if (parts.length === 3) {
-              const h = parseInt(parts[0], 10) || 0;
-              const m = parseInt(parts[1], 10) || 0;
-              const s = parseInt(parts[2], 10) || 0;
-              targetTime = Date.now() + (h * 3600 + m * 60 + s) * 1000;
-            } else {
-              targetTime = Date.now() + 45 * 60 * 1000;
-            }
-          } else if (c.status === 'upcoming') {
-            const match = (c.countdown || '').match(/Starts in (\d+)h (\d+)m/);
-            if (match) {
-              const h = parseInt(match[1], 10) || 0;
-              const m = parseInt(match[2], 10) || 0;
-              targetTime = Date.now() + (h * 3600 + m * 60) * 1000;
-            } else {
-              targetTime = Date.now() + 135 * 60 * 1000; // 2h 15m fallback
-            }
-          }
-
-          return {
-            ...c,
-            targetTime,
-            // default registered state (can mock/read)
-            registered: c.id === 'c1' || c.id === 'c3'
-          };
-        });
-
+        const mapped = list.map(c => ({
+          ...c,
+          registered: c.registered !== undefined ? c.registered : (c.id === 'weekly-syntiq-challenge-48' || c.status === 'past')
+        }));
         setContests(mapped);
         setLoading(false);
       })
@@ -73,40 +46,41 @@ export default function Contests({ isLoggedIn }) {
       });
   }, []);
 
-  // Timer Tick useEffect
+  // Update clock every second
   useEffect(() => {
-    if (contests.length === 0) return;
-
     const interval = setInterval(() => {
-      setContests(prev => prev.map(c => {
-        if (!c.targetTime) return c;
-        const diff = c.targetTime - Date.now();
-        let newCountdown = '';
-        
-        if (diff <= 0) {
-          newCountdown = c.status === 'live' ? 'Ended' : 'Starting...';
-        } else {
-          const sec = Math.floor(diff / 1000) % 60;
-          const min = Math.floor(diff / (1000 * 60)) % 60;
-          const hour = Math.floor(diff / (1000 * 60 * 60));
-          const pad = (n) => String(n).padStart(2, '0');
-
-          if (c.status === 'live') {
-            newCountdown = `${pad(hour)}:${pad(min)}:${pad(sec)}`;
-          } else {
-            newCountdown = `Starts in ${hour}h ${min}m ${sec}s`;
-          }
-        }
-
-        return {
-          ...c,
-          countdown: newCountdown
-        };
-      }));
+      setNow(Date.now());
     }, 1000);
-
     return () => clearInterval(interval);
-  }, [contests.length]);
+  }, []);
+
+  const getContestCountdown = (c, currentTimestamp) => {
+    const start = new Date(c.start_time).getTime();
+    const end = new Date(c.end_time).getTime();
+
+    if (c.status === 'live') {
+      const diff = end - currentTimestamp;
+      if (diff <= 0) return 'Ended';
+      const sec = Math.floor(diff / 1000) % 60;
+      const min = Math.floor(diff / (1000 * 60)) % 60;
+      const hour = Math.floor(diff / (1000 * 60 * 60));
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(hour)}:${pad(min)}:${pad(sec)}`;
+    } else if (c.status === 'upcoming') {
+      const diff = start - currentTimestamp;
+      if (diff <= 0) return 'Starting...';
+      const sec = Math.floor(diff / 1000) % 60;
+      const min = Math.floor(diff / (1000 * 60)) % 60;
+      const hour = Math.floor(diff / (1000 * 60 * 60));
+      const pad = (n) => String(n).padStart(2, '0');
+      return `Starts in ${hour}h ${min}m ${sec}s`;
+    } else {
+      const endDate = new Date(c.end_time);
+      const dateStr = endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      const timeStr = endDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      return `Ended ${dateStr} at ${timeStr}`;
+    }
+  };
 
   if (loading) {
     return (
@@ -170,7 +144,7 @@ export default function Contests({ isLoggedIn }) {
                     </span>
                     <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
                       <Clock className="w-3.5 h-3.5" />
-                      Ends in {c.countdown}
+                      Ends in {getContestCountdown(c, now)}
                     </div>
                   </div>
 
@@ -220,7 +194,7 @@ export default function Contests({ isLoggedIn }) {
                   </span>
                   <div className="flex items-center gap-1.5 text-xs text-brand-warning font-semibold">
                     <Calendar className="w-3.5 h-3.5" />
-                    {c.countdown}
+                    {getContestCountdown(c, now)}
                   </div>
                 </div>
 
@@ -282,7 +256,7 @@ export default function Contests({ isLoggedIn }) {
                 {pastContests.map(c => (
                   <tr key={c.id} className="hover:bg-white/[0.01] transition-colors">
                     <td className="py-4 px-6 font-semibold text-white">{c.name}</td>
-                    <td className="py-4 px-6 text-xs text-slate-400">{c.countdown}</td>
+                    <td className="py-4 px-6 text-xs text-slate-400">{getContestCountdown(c, now)}</td>
                     <td className="py-4 px-6 text-xs text-slate-400 font-medium">{c.participants}</td>
                     <td className="py-4 px-6 text-xs">
                       <span className={`font-semibold ${

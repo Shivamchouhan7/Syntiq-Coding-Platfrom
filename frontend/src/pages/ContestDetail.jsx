@@ -7,7 +7,7 @@ export default function ContestDetail({ isLoggedIn }) {
   const [contest, setContest] = useState(null);
   const [contestProblems, setContestProblems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [countdownText, setCountdownText] = useState('');
+  const [now, setNow] = useState(Date.now());
   const [activeSubTab, setActiveSubTab] = useState('problems'); // problems, leaderboard
 
   useEffect(() => {
@@ -31,69 +31,55 @@ export default function ContestDetail({ isLoggedIn }) {
 
     Promise.all([fetchContest, fetchProblems]).then(([contestData, allProbs]) => {
       if (contestData) {
-        // Map problems that belong to the contest
         const associatedProblems = allProbs.filter(p => contestData.problems.includes(p.id));
         setContestProblems(associatedProblems);
-
-        // Assign targetTime for countdown ticking
-        let targetTime = null;
-        if (contestData.status === 'live') {
-          const parts = (contestData.countdown || '00:45:12').split(':');
-          if (parts.length === 3) {
-            const h = parseInt(parts[0], 10) || 0;
-            const m = parseInt(parts[1], 10) || 0;
-            const s = parseInt(parts[2], 10) || 0;
-            targetTime = Date.now() + (h * 3600 + m * 60 + s) * 1000;
-          } else {
-            targetTime = Date.now() + 45 * 60 * 1000;
-          }
-        } else if (contestData.status === 'upcoming') {
-          const match = (contestData.countdown || '').match(/Starts in (\d+)h (\d+)m/);
-          if (match) {
-            const h = parseInt(match[1], 10) || 0;
-            const m = parseInt(match[2], 10) || 0;
-            targetTime = Date.now() + (h * 3600 + m * 60) * 1000;
-          } else {
-            targetTime = Date.now() + 135 * 60 * 1000;
-          }
-        }
-        
-        setContest({ ...contestData, targetTime });
+        setContest(contestData);
       }
       setLoading(false);
     });
   }, [id]);
 
+  // Update clock every second
   useEffect(() => {
-    if (!contest) return;
-
-    if (!contest.targetTime) {
-      setCountdownText(contest.countdown || '');
-      return;
-    }
-
-    const updateCountdown = () => {
-      const diff = contest.targetTime - Date.now();
-      if (diff <= 0) {
-        setCountdownText(contest.status === 'live' ? 'Ended' : 'Starting...');
-      } else {
-        const sec = Math.floor(diff / 1000) % 60;
-        const min = Math.floor(diff / (1000 * 60)) % 60;
-        const hour = Math.floor(diff / (1000 * 60 * 60));
-        const pad = (n) => String(n).padStart(2, '0');
-
-        if (contest.status === 'live') {
-          setCountdownText(`${pad(hour)}:${pad(min)}:${pad(sec)}`);
-        } else {
-          setCountdownText(`Starts in ${hour}h ${min}m ${sec}s`);
-        }
-      }
-    };
-
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
     return () => clearInterval(interval);
-  }, [contest]);
+  }, []);
+
+  const getContestCountdown = (c, currentTimestamp) => {
+    if (!c) return '';
+    const start = new Date(c.start_time).getTime();
+    const end = new Date(c.end_time).getTime();
+
+    if (c.status === 'live') {
+      const diff = end - currentTimestamp;
+      if (diff <= 0) return 'Ended';
+      const sec = Math.floor(diff / 1000) % 60;
+      const min = Math.floor(diff / (1000 * 60)) % 60;
+      const hour = Math.floor(diff / (1000 * 60 * 60)) % 24;
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(hour)}:${pad(min)}:${pad(sec)}`;
+    } else if (c.status === 'upcoming') {
+      const diff = start - currentTimestamp;
+      if (diff <= 0) return 'Starting...';
+      const sec = Math.floor(diff / 1000) % 60;
+      const min = Math.floor(diff / (1000 * 60)) % 60;
+      const hour = Math.floor(diff / (1000 * 60 * 60)) % 24;
+      const day = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const pad = (n) => String(n).padStart(2, '0');
+      if (day > 0) {
+        return `Starts in ${day}d ${hour}h ${min}m`;
+      } else {
+        return `Starts in ${hour}h ${min}m ${sec}s`;
+      }
+    } else {
+      const endDate = new Date(c.end_time);
+      const dateStr = endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      const timeStr = endDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      return `Ended ${dateStr} at ${timeStr}`;
+    }
+  };
 
   if (!isLoggedIn) {
     return (
@@ -320,15 +306,9 @@ export default function ContestDetail({ isLoggedIn }) {
               {contest.status === 'live' ? 'Time Remaining' : contest.status === 'upcoming' ? 'Starts In' : 'Contest Ended'}
             </h3>
             
-            {contest.status !== 'past' ? (
-              <div className="text-3xl font-extrabold text-white tracking-wider font-mono">
-                {countdownText}
-              </div>
-            ) : (
-              <div className="text-sm font-semibold text-slate-400">
-                {contest.countdown}
-              </div>
-            )}
+            <div className={`${contest.status !== 'past' ? 'text-3xl font-extrabold text-white tracking-wider font-mono' : 'text-sm font-semibold text-slate-400'}`}>
+              {getContestCountdown(contest, now)}
+            </div>
 
             {contest.status === 'live' && (
               <div className="border-t border-white/5 pt-4 space-y-3">
