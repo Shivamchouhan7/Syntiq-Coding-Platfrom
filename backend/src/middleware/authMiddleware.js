@@ -3,6 +3,10 @@ import supabase from '../utils/supabase.js';
 
 const formatUser = (user) => {
   if (!user) return null;
+  const friends = user.skills?.friends || [];
+  const cleanSkills = { ...user.skills };
+  delete cleanSkills.friends;
+
   return {
     id: user.id,
     username: user.username,
@@ -13,14 +17,8 @@ const formatUser = (user) => {
     level: user.level || 1,
     streak: user.streak || 0,
     solvedCount: user.solved_count || { easy: 0, medium: 0, hard: 0, total: 0 },
-    skills: user.skills || {
-      "Arrays": 0,
-      "Strings": 0,
-      "DP": 0,
-      "Trees": 0,
-      "Graphs": 0,
-      "Sorting": 0
-    },
+    skills: cleanSkills,
+    friends,
     contestHistory: [],
     recentSubmissions: [],
     createdAt: user.created_at
