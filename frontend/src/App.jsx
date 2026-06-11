@@ -76,7 +76,7 @@ function App() {
             <Route path="/contests" element={<Contests isLoggedIn={isLoggedIn} />} />
             <Route path="/contest/:id" element={<ContestDetail isLoggedIn={isLoggedIn} />} />
             <Route path="/problem/:id" element={<ProblemDetail isLoggedIn={isLoggedIn} user={user} />} />
-            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/leaderboard" element={<Leaderboard isLoggedIn={isLoggedIn} user={user} setUser={setUser} />} />
             <Route path="/profile/:username" element={<Profile />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -15,6 +15,10 @@ const timeAgo = (dateString) => {
 };
 
 const formatUser = (user, submissions = [], calendar = []) => {
+  const friends = user.skills?.friends || [];
+  const cleanSkills = { ...user.skills };
+  delete cleanSkills.friends;
+
   return {
     id: user.id,
     username: user.username,
@@ -25,14 +29,8 @@ const formatUser = (user, submissions = [], calendar = []) => {
     level: user.level || 1,
     streak: user.streak || 0,
     solvedCount: user.solved_count || { easy: 0, medium: 0, hard: 0, total: 0 },
-    skills: user.skills || {
-      "Arrays": 0,
-      "Strings": 0,
-      "DP": 0,
-      "Trees": 0,
-      "Graphs": 0,
-      "Sorting": 0
-    },
+    skills: cleanSkills,
+    friends,
     contestHistory: [],
     recentSubmissions: submissions.map(sub => ({
       problem: sub.problems?.title || 'Unknown Problem',
@@ -117,4 +115,61 @@ export const getUserByUsername = async (req, res) => {
     res.status(500).json({ status: 'error', message: 'Server error retrieving user profile' });
   }
 };
+
+export const toggleFriend = async (req, res) => {
+  try {
+    const { friendUsername } = req.body;
+    const currentUserId = req.user.id; // From authMiddleware formatted user
+
+    if (!friendUsername) {
+      return res.status(400).json({ status: 'error', message: 'Friend username is required' });
+    }
+
+    // 1. Fetch current user profile to get their skills object
+    const { data: user, error: fetchError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', currentUserId)
+      .single();
+
+    if (fetchError || !user) {
+      return res.status(404).json({ status: 'error', message: 'User not found' });
+    }
+
+    // Initialize/manipulate friends array in skills
+    const skills = user.skills || {};
+    let friends = skills.friends || [];
+
+    if (friends.includes(friendUsername)) {
+      // Unfriend
+      friends = friends.filter(f => f !== friendUsername);
+    } else {
+      // Friend
+      friends = [...friends, friendUsername];
+    }
+
+    skills.friends = friends;
+
+    // 3. Update the database
+    const { data: updatedUser, error: updateError } = await supabase
+      .from('profiles')
+      .update({ skills })
+      .eq('id', currentUserId)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    res.json({
+      status: 'success',
+      message: 'Friend status updated successfully',
+      friends
+    });
+
+  } catch (error) {
+    console.error('Toggle friend error:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to update friend status' });
+  }
+};
+
 
