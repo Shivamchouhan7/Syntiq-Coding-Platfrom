@@ -118,3 +118,55 @@ export const createProblem = async (req, res) => {
     });
   }
 };
+
+export const createProblemsBulk = async (req, res) => {
+  try {
+    const { problems } = req.body;
+
+    if (!problems || !Array.isArray(problems) || problems.length === 0) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Request body must contain an array of problems'
+      });
+    }
+
+    const problemsToInsert = problems.map(prob => {
+      const cleanId = prob.id.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+      return {
+        id: cleanId,
+        title: prob.title,
+        difficulty: prob.difficulty || 'Easy',
+        acceptance: prob.acceptance || '0.0%',
+        category: prob.category || 'General',
+        statement: prob.statement,
+        constraints: prob.constraints || [],
+        starter_code: prob.starterCode || prob.starter_code || {},
+        test_cases: prob.testCases || prob.test_cases || [],
+        editorial: prob.editorial || '',
+        input_example: prob.inputExample || prob.input_example || '',
+        output_example: prob.outputExample || prob.output_example || ''
+      };
+    });
+
+    const { data, error } = await supabase
+      .from('problems')
+      .insert(problemsToInsert)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    res.status(201).json({
+      status: 'success',
+      message: `Successfully imported ${data.length} problems`,
+      count: data.length
+    });
+  } catch (error) {
+    console.error('Bulk create problems error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to bulk create problems'
+    });
+  }
+};
