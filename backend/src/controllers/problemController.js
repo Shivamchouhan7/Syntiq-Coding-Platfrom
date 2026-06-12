@@ -68,7 +68,7 @@ export const getProblemById = async (req, res) => {
 
 export const createProblem = async (req, res) => {
   try {
-    const { id, title, difficulty, acceptance, category, statement, constraints, starterCode, testCases, editorial } = req.body;
+    const { id, title, difficulty, acceptance, category, statement, constraints, starterCode, testCases, editorial, inputExample, outputExample, input_example, output_example } = req.body;
 
     if (!id || !title || !difficulty || !statement) {
       return res.status(400).json({
@@ -87,7 +87,9 @@ export const createProblem = async (req, res) => {
       constraints: constraints || [],
       starter_code: starterCode || {},
       test_cases: testCases || [],
-      editorial: editorial || ""
+      editorial: editorial || "",
+      input_example: inputExample || input_example || "",
+      output_example: outputExample || output_example || ""
     };
 
     const { data: problem, error } = await supabase
