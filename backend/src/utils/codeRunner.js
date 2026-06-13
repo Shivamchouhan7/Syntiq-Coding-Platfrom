@@ -13,11 +13,9 @@ export function parseInput(inputStr) {
     try {
       // Evaluate basic JSON structures (arrays, numbers, strings, booleans, null)
       // If it fails (e.g. unquoted strings or special tree structure format), we treat as string
-      // Replace single quotes with double quotes for valid JSON
-      if (valStr.startsWith("'") && valStr.endsWith("'")) {
-        valStr = `"${valStr.slice(1, -1)}"`;
-      }
-      result[key] = JSON.parse(valStr);
+      // Replace all single quotes with double quotes for valid JSON
+      const jsonStr = valStr.replace(/'/g, '"');
+      result[key] = JSON.parse(jsonStr);
     } catch (e) {
       result[key] = valStr;
     }
@@ -30,7 +28,8 @@ export function parseInput(inputStr) {
 function compareOutput(actual, expectedStr) {
   let expected;
   try {
-    expected = JSON.parse(expectedStr);
+    const jsonStr = expectedStr.replace(/'/g, '"');
+    expected = JSON.parse(jsonStr);
   } catch (e) {
     expected = expectedStr;
   }
@@ -99,9 +98,18 @@ export async function runCode(problemId, language, code, testCases) {
     });
   }
 
-  const functionName = problemFunctionMap[problemId];
+  let functionName = problemFunctionMap[problemId];
   if (!functionName) {
-    throw new Error(`Execution unsupported for problem: ${problemId}`);
+    // Attempt to extract function name from user code using regex
+    // Matches: function myFunc( or const myFunc = function( or const myFunc = (args) =>
+    const match = code.match(/(?:function\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\(|(?:const|let|var)\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*(?:function|\(.*?\)\s*=>|[a-zA-Z_$][0-9a-zA-Z_$]*\s*=>))/);
+    if (match) {
+      functionName = match[1] || match[2];
+    }
+  }
+
+  if (!functionName) {
+    throw new Error(`Execution unsupported for problem: ${problemId}. Could not detect function name from code.`);
   }
 
   return testCases.map(tc => {
@@ -110,12 +118,23 @@ export async function runCode(problemId, language, code, testCases) {
     const argValues = Object.values(parsedArgs);
 
     // Prepare code runner script
+    const argsDecls = Object.entries(parsedArgs)
+      .map(([k, v]) => `let arg_${k} = ${JSON.stringify(v)};`)
+      .join('\n      ');
+    const argsCall = Object.keys(parsedArgs)
+      .map(k => `arg_${k}`)
+      .join(', ');
+    const firstArgName = Object.keys(parsedArgs)[0] ? `arg_${Object.keys(parsedArgs)[0]}` : 'undefined';
+
     const scriptText = `
       ${code}
       
+      ${argsDecls}
       // Execute function
-      const result = ${functionName}(...${JSON.stringify(argValues)});
-      result;
+      const result = ${functionName}(${argsCall});
+      
+      // If function returns undefined, assume in-place modification and return the first argument
+      result !== undefined ? result : ${firstArgName};
     `;
 
     const startTime = process.hrtime();

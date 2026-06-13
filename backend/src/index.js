@@ -1,6 +1,10 @@
+import dotenv from 'dotenv';
+
+// Load environment variables FIRST before any other imports that depend on them
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -8,6 +12,7 @@ import problemRoutes from './routes/problems.js';
 import submissionRoutes from './routes/submissions.js';
 import userRoutes from './routes/users.js';
 import contestRoutes from './routes/contests.js';
+import aiRoutes from './routes/ai.js';
 import supabase from "./utils/supabase.js";
 
 
@@ -22,9 +27,6 @@ const testConnection = async () => {
 };
 
 testConnection();
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -49,6 +51,7 @@ app.use('/api/problems', problemRoutes);
 app.use('/api/submissions', submissionRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/contests', contestRoutes);
+app.use('/api/ai', aiRoutes);
 
 
 // Health check endpoint

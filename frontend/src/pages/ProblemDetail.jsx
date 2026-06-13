@@ -33,6 +33,8 @@ export default function ProblemDetail({ isLoggedIn, user }) {
 
   // AI features state
   const [hintsRevealed, setHintsRevealed] = useState(0);
+  const [aiHintsList, setAiHintsList] = useState([]);
+  const [isFetchingHint, setIsFetchingHint] = useState(false);
   const [aiCodeReview, setAiCodeReview] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -69,7 +71,16 @@ export default function ProblemDetail({ isLoggedIn, user }) {
       if (probData) {
         setProblem(probData);
         setCode(probData.starterCode?.[selectedLang] || '');
-        setTestCases(probData.testCases || []);
+        // Normalize DB shape {input, output} → UI shape {id, name, input, expected, status}
+        const rawCases = probData.testCases || probData.test_cases || [];
+        const normalized = rawCases.map((tc, i) => ({
+          id: i,
+          name: `Case ${i + 1}`,
+          input: tc.input ?? '',
+          expected: tc.output ?? tc.expected ?? '',
+          status: null,
+        }));
+        setTestCases(normalized);
         setDiscussions(probData.discussion || []);
         
         // Format submissions
@@ -235,34 +246,65 @@ export default function ProblemDetail({ isLoggedIn, user }) {
   };
 
   // AI Hints triggers
-  const getAiHint = () => {
-    if (hintsRevealed < 3) {
-      setHintsRevealed(hintsRevealed + 1);
+  const getAiHint = async () => {
+    if (hintsRevealed < 3 && !isFetchingHint) {
+      setIsFetchingHint(true);
+      const nextHintLevel = hintsRevealed + 1;
       setConsoleTab('aihints');
+      
+      try {
+        const res = await fetch(`${API_BASE}/ai/hint`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            problemTitle: problem.title,
+            statement: problem.statement,
+            language: selectedLang,
+            code,
+            hintLevel: nextHintLevel
+          })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          setHintsRevealed(nextHintLevel);
+          setAiHintsList(prev => [...prev, data.hint]);
+        }
+      } catch (err) {
+        console.error('Error fetching hint:', err);
+      } finally {
+        setIsFetchingHint(false);
+      }
     }
   };
 
   // AI Code Review simulation
-  const runAiAnalysis = () => {
+  const runAiAnalysis = async () => {
     setIsAnalyzing(true);
     setConsoleTab('aianalysis');
     setAiCodeReview('Syntiq AI is analyzing your code draft...');
     
-    setTimeout(() => {
+    try {
+      const res = await fetch(`${API_BASE}/ai/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          problemTitle: problem.title,
+          statement: problem.statement,
+          language: selectedLang,
+          code
+        })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        setAiCodeReview(data.analysis);
+      } else {
+        setAiCodeReview(`Error: ${data.message || 'Failed to analyze code'}`);
+      }
+    } catch (err) {
+      setAiCodeReview('Error: Unable to connect to Syntiq AI services.');
+    } finally {
       setIsAnalyzing(false);
-      setAiCodeReview(
-        `### Syntiq AI Code Review Report\n\n` +
-        `**Complexity Evaluation:**\n` +
-        `- Current implementation runs in **O(N)** time and uses **O(N)** memory.\n` +
-        `- This is optimal for the general case of this problem.\n\n` +
-        `**Anomalies & Corner Cases Check:**\n` +
-        `- *Check empty array:* Add a check for \`nums.length === 0\` to avoid redundant loop cycles.\n` +
-        `- *Check single element:* The array should have at least 2 elements. Ensure validation is present if parameters are unstable.\n\n` +
-        `**Optimization Tips:**\n` +
-        `- In JavaScript, caching \`nums.length\` in a variable inside the loop headers is slightly faster in legacy runtimes, although modern V8 handles it automatically.\n` +
-        `- Using a Map object is perfect here. For minor memory optimizations in standard execution, you could use a plain JavaScript object \`{}\` rather than a Map.`
-      );
-    }, 1800);
+    }
   };
 
   if (loading) {
@@ -681,7 +723,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
                     <div><span className="text-slate-500 font-semibold">Current Selected Input:</span></div>
                     <div className="bg-bg-darker p-2 rounded text-slate-300 font-semibold">{testCases[0]?.input}</div>
                     <div className="flex justify-between items-center text-[10px] text-slate-500 pt-1">
-                      <span>Expected Output: <strong className="text-slate-300">{testCases[0]?.expected}</strong></span>
+                      <span>Expected Output: <strong className="text-slate-300">{testCases[0]?.expected || '—'}</strong></span>
                     </div>
                   </div>
                 </div>
@@ -710,38 +752,26 @@ export default function ProblemDetail({ isLoggedIn, user }) {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div className="bg-bg-panel border border-white/5 rounded-lg p-3 space-y-1">
-                        <div className="text-brand-primary font-bold">Hint 1 of 3:</div>
-                        <p className="text-slate-300">Can you think of how a Hash Map can store indices of numbers as we iterate?</p>
-                      </div>
-                      
-                      {hintsRevealed >= 2 ? (
-                        <div className="bg-bg-panel border border-white/5 rounded-lg p-3 space-y-1">
-                          <div className="text-brand-primary font-bold">Hint 2 of 3:</div>
-                          <p className="text-slate-300">For each index \`i\` with value \`nums[i]\`, we need to check if \`target - nums[i]\` exists in the Hash Map.</p>
+                      {aiHintsList.map((hintText, idx) => (
+                        <div key={idx} className="bg-bg-panel border border-white/5 rounded-lg p-3 space-y-1">
+                          <div className="text-brand-primary font-bold">Hint {idx + 1} of 3:</div>
+                          <p className="text-slate-300 whitespace-pre-wrap">{hintText}</p>
                         </div>
-                      ) : (
+                      ))}
+                      
+                      {hintsRevealed < 3 && (
                         <button 
                           onClick={getAiHint}
-                          className="text-brand-primary hover:text-brand-primary-hover font-bold flex items-center gap-0.5 text-xs py-1"
+                          disabled={isFetchingHint}
+                          className="text-brand-primary hover:text-brand-primary-hover font-bold flex items-center gap-0.5 text-xs py-1 disabled:opacity-50"
                         >
-                          Reveal Hint 2 <ChevronRight className="w-4 h-4" />
+                          {isFetchingHint ? (
+                            <><Loader2 className="w-4 h-4 animate-spin" /> Fetching AI Hint...</>
+                          ) : (
+                            <>Reveal Hint {hintsRevealed + 1} <ChevronRight className="w-4 h-4" /></>
+                          )}
                         </button>
                       )}
-
-                      {hintsRevealed >= 3 ? (
-                        <div className="bg-bg-panel border border-white/5 rounded-lg p-3 space-y-1">
-                          <div className="text-brand-primary font-bold">Hint 3 of 3:</div>
-                          <p className="text-slate-300">Return the indices array \`[map.get(target - nums[i]), i]\`. That provides an index from map and the current iterator in O(N) runtime.</p>
-                        </div>
-                      ) : hintsRevealed === 2 ? (
-                        <button 
-                          onClick={getAiHint}
-                          className="text-brand-primary hover:text-brand-primary-hover font-bold flex items-center gap-0.5 text-xs py-1"
-                        >
-                          Reveal Hint 3 <ChevronRight className="w-4 h-4" />
-                        </button>
-                      ) : null}
                     </div>
                   )}
                 </div>
