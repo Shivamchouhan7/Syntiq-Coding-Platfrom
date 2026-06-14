@@ -35,6 +35,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
   const [hintsRevealed, setHintsRevealed] = useState(0);
   const [aiHintsList, setAiHintsList] = useState([]);
   const [isFetchingHint, setIsFetchingHint] = useState(false);
+  const [hintError, setHintError] = useState(null);
   const [aiCodeReview, setAiCodeReview] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -266,11 +267,15 @@ export default function ProblemDetail({ isLoggedIn, user }) {
         });
         const data = await res.json();
         if (data.status === 'success') {
+          setHintError(null);
           setHintsRevealed(nextHintLevel);
           setAiHintsList(prev => [...prev, data.hint]);
+        } else {
+          setHintError(data.message || 'Failed to fetch hint');
         }
       } catch (err) {
         console.error('Error fetching hint:', err);
+        setHintError('Unable to connect to the AI service.');
       } finally {
         setIsFetchingHint(false);
       }
@@ -739,6 +744,12 @@ export default function ProblemDetail({ isLoggedIn, user }) {
               {/* 3. AI Hints View */}
               {consoleTab === 'aihints' && (
                 <div className="space-y-3">
+                  {hintError && (
+                    <div className="bg-brand-error/10 border border-brand-error/20 text-brand-error rounded-lg p-3 text-xs leading-normal">
+                      {hintError}
+                    </div>
+                  )}
+
                   {hintsRevealed === 0 ? (
                     <div className="text-center text-slate-500 py-6">
                       <Lightbulb className="w-8 h-8 text-brand-primary/40 mx-auto mb-2" />
