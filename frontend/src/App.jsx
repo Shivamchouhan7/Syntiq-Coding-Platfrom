@@ -11,6 +11,7 @@ import ContestDetail from './pages/ContestDetail';
 import ProblemDetail from './pages/ProblemDetail';
 import Leaderboard from './pages/Leaderboard';
 import Profile from './pages/Profile';
+import AdminAddProblem from './pages/AdminAddProblem';
 import { API_BASE } from './config';
 
 function App() {
@@ -78,6 +79,7 @@ function App() {
             <Route path="/problem/:id" element={<ProblemDetail isLoggedIn={isLoggedIn} user={user} />} />
             <Route path="/leaderboard" element={<Leaderboard isLoggedIn={isLoggedIn} user={user} setUser={setUser} />} />
             <Route path="/profile/:username" element={<Profile />} />
+            <Route path="/admin/add-problem" element={<AdminAddProblem />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

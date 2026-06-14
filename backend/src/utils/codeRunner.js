@@ -5,8 +5,10 @@ export function parseInput(inputStr) {
   const result = {};
   const regex = /(\w+)\s*=\s*(.+?)(?=\s*,\s*\w+\s*=|$)/g;
   let match;
+  let matched = false;
   
   while ((match = regex.exec(inputStr)) !== null) {
+    matched = true;
     const key = match[1];
     let valStr = match[2].trim();
     
@@ -18,6 +20,18 @@ export function parseInput(inputStr) {
       result[key] = JSON.parse(jsonStr);
     } catch (e) {
       result[key] = valStr;
+    }
+  }
+
+  if (!matched) {
+    let valStr = inputStr.trim();
+    try {
+      if (valStr.startsWith("'") && valStr.endsWith("'")) {
+        valStr = `"${valStr.slice(1, -1)}"`;
+      }
+      return { arg0: JSON.parse(valStr) };
+    } catch (e) {
+      return { arg0: valStr };
     }
   }
   
@@ -76,7 +90,8 @@ const problemFunctionMap = {
   'edit-distance': 'minDistance',
   'binary-tree-level-order': 'levelOrder',
   'graph-valid-tree': 'validTree',
-  'merge-sort': 'sortArray'
+  'merge-sort': 'sortArray',
+  'maximum-consecutive-ones': 'findMaxConsecutiveOnes'
 };
 
 export async function runCode(problemId, language, code, testCases) {
@@ -110,6 +125,12 @@ export async function runCode(problemId, language, code, testCases) {
 
   if (!functionName) {
     throw new Error(`Execution unsupported for problem: ${problemId}. Could not detect function name from code.`);
+    const match = code.match(/function\s+(\w+)\s*\(/);
+    if (match && match[1]) {
+      functionName = match[1];
+    } else {
+      functionName = 'solve';
+    }
   }
 
   return testCases.map(tc => {
