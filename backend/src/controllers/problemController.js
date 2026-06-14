@@ -68,7 +68,7 @@ export const getProblemById = async (req, res) => {
 
 export const createProblem = async (req, res) => {
   try {
-    const { id, title, difficulty, acceptance, category, statement, constraints, starterCode, testCases, editorial } = req.body;
+    const { id, title, difficulty, acceptance, category, statement, constraints, starterCode, testCases, editorial, inputExample, outputExample, input_example, output_example } = req.body;
 
     if (!id || !title || !difficulty || !statement) {
       return res.status(400).json({
@@ -87,7 +87,9 @@ export const createProblem = async (req, res) => {
       constraints: constraints || [],
       starter_code: starterCode || {},
       test_cases: testCases || [],
-      editorial: editorial || ""
+      editorial: editorial || "",
+      input_example: inputExample || input_example || "",
+      output_example: outputExample || output_example || ""
     };
 
     const { data: problem, error } = await supabase
@@ -115,6 +117,58 @@ export const createProblem = async (req, res) => {
     res.status(500).json({
       status: 'error',
       message: 'Failed to create problem'
+    });
+  }
+};
+
+export const createProblemsBulk = async (req, res) => {
+  try {
+    const { problems } = req.body;
+
+    if (!problems || !Array.isArray(problems) || problems.length === 0) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Request body must contain an array of problems'
+      });
+    }
+
+    const problemsToInsert = problems.map(prob => {
+      const cleanId = prob.id.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+      return {
+        id: cleanId,
+        title: prob.title,
+        difficulty: prob.difficulty || 'Easy',
+        acceptance: prob.acceptance || '0.0%',
+        category: prob.category || 'General',
+        statement: prob.statement,
+        constraints: prob.constraints || [],
+        starter_code: prob.starterCode || prob.starter_code || {},
+        test_cases: prob.testCases || prob.test_cases || [],
+        editorial: prob.editorial || '',
+        input_example: prob.inputExample || prob.input_example || '',
+        output_example: prob.outputExample || prob.output_example || ''
+      };
+    });
+
+    const { data, error } = await supabase
+      .from('problems')
+      .insert(problemsToInsert)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    res.status(201).json({
+      status: 'success',
+      message: `Successfully imported ${data.length} problems`,
+      count: data.length
+    });
+  } catch (error) {
+    console.error('Bulk create problems error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to bulk create problems'
     });
   }
 };
