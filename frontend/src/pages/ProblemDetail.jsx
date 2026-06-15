@@ -863,20 +863,20 @@ export default function ProblemDetail({ isLoggedIn, user }) {
                           </div>
                         </div>
 
-                        {/* Actual output — only show when failed */}
-                        {selectedResult.status !== 'passed' && (
-                          <div>
-                            <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Your Output</div>
-                            <div className="bg-bg-darker rounded p-2 font-mono text-xs text-brand-error whitespace-pre-wrap">
-                              {selectedResult.actual ?? 'N/A'}
-                            </div>
-                            {selectedResult.error && (
-                              <div className="mt-2 text-[10px] text-brand-error/70 font-mono whitespace-pre-wrap bg-brand-error/5 rounded p-2 border border-brand-error/10">
-                                {selectedResult.error}
-                              </div>
-                            )}
+                        {/* Actual output — always show so user can verify */}
+                        <div>
+                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Your Output</div>
+                          <div className={`bg-bg-darker rounded p-2 font-mono text-xs whitespace-pre-wrap ${
+                            selectedResult.status === 'passed' ? 'text-slate-300' : 'text-brand-error'
+                          }`}>
+                            {selectedResult.actual ?? 'N/A'}
                           </div>
-                        )}
+                          {selectedResult.error && (
+                            <div className="mt-2 text-[10px] text-brand-error/70 font-mono whitespace-pre-wrap bg-brand-error/5 rounded p-2 border border-brand-error/10">
+                              {selectedResult.error}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
 
