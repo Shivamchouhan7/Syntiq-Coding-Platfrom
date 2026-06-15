@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { API_BASE } from '../config';
 import { useParams, Link } from 'react-router-dom';
 import { 
-  Play, Send, RotateCcw, Copy, CheckCircle, 
+  Play, Send, RotateCcw, Copy, CheckCircle, XCircle,
   MessageSquare, ChevronRight, Terminal as TermIcon,
   Code2, Lightbulb, BookOpen, Brain, Loader2,
-  LogIn, Shield
+  LogIn, Shield, Lock, AlertTriangle
 } from 'lucide-react';
 
 export default function ProblemDetail({ isLoggedIn, user }) {
@@ -26,6 +26,10 @@ export default function ProblemDetail({ isLoggedIn, user }) {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [submitResult, setSubmitResult] = useState(null);
+  // Per-test-case results after run or submit (full detail from backend)
+  const [caseResults, setCaseResults] = useState(null);
+  // Which visible test case is selected/expanded in the panel
+  const [selectedCase, setSelectedCase] = useState(0);
 
   // Discussion state
   const [newComment, setNewComment] = useState('');
@@ -132,8 +136,8 @@ export default function ProblemDetail({ isLoggedIn, user }) {
     if (!requireAuth()) return;
 
     setIsRunning(true);
-    setConsoleTab('result');
-    setRunLogs('Compiling and running against test cases...');
+    setCaseResults(null);
+    setConsoleTab('testcases');
     
     try {
       const token = localStorage.getItem('syntiq_token');
@@ -155,18 +159,20 @@ export default function ProblemDetail({ isLoggedIn, user }) {
 
       if (data.status === 'success') {
         const { runResults, passedCount, totalCount } = data;
-        setRunLogs(`Compilation Successful.\nExecuting test cases...\n\n${passedCount}/${totalCount} test cases PASSED.`);
-        
-        // Update test case statuses
+        setCaseResults(runResults);
+        setSelectedCase(0);
+        // Update status pills on the test case tabs
         setTestCases(prev => prev.map((tc, idx) => ({
           ...tc,
           status: runResults[idx]?.status === 'passed' ? 'passed' : 'failed'
         })));
       } else {
         setRunLogs(`Error: ${data.message || 'Failed to run code.'}`);
+        setConsoleTab('result');
       }
     } catch (err) {
       setRunLogs('Error: Unable to connect to server. Make sure the backend is running.');
+      setConsoleTab('result');
     } finally {
       setIsRunning(false);
     }
@@ -177,6 +183,7 @@ export default function ProblemDetail({ isLoggedIn, user }) {
     if (!requireAuth()) return;
 
     setIsSubmitting(true);
+    setCaseResults(null);
     
     try {
       const token = localStorage.getItem('syntiq_token');
@@ -197,16 +204,27 @@ export default function ProblemDetail({ isLoggedIn, user }) {
       const data = await res.json();
 
       if (res.status === 401) {
-        // Token expired
         setShowLoginModal(true);
         return;
       }
 
       if (data.status === 'success') {
-        const { submission, passedCount, totalCount } = data;
-        setSubmitResult({ submission, passedCount, totalCount });
+        const { submission, passedCount, totalCount, runResults } = data;
+        setSubmitResult({ submission, passedCount, totalCount, runResults });
+        // Show test case breakdown in console panel
+        if (runResults) {
+          setCaseResults(runResults);
+          setSelectedCase(0);
+        }
+        setConsoleTab('testcases');
         setShowSubmitModal(true);
-        
+        // Update status pills
+        if (runResults) {
+          setTestCases(prev => prev.map((tc, idx) => ({
+            ...tc,
+            status: runResults[idx]?.status === 'passed' ? 'passed' : 'failed'
+          })));
+        }
         // Add to local submissions list
         const newSub = {
           id: submission.id,
@@ -703,31 +721,178 @@ export default function ProblemDetail({ isLoggedIn, user }) {
             <div className="p-4 flex-grow overflow-y-auto text-xs font-mono text-slate-300">
               
               {/* 1. Test Cases View */}
-              {consoleTab === 'testcases' && (
-                <div className="space-y-4">
-                  <div className="flex gap-2">
-                    {testCases.map((tc) => (
-                      <div 
-                        key={tc.id} 
-                        className={`px-3 py-1.5 rounded-lg border flex items-center gap-1.5 bg-bg-panel/40 ${
-                          tc.status === 'passed' ? 'border-brand-success/30 text-brand-success' : 'border-white/5 text-slate-400'
-                        }`}
-                      >
-                        {tc.status === 'passed' && <CheckCircle className="w-3.5 h-3.5" />}
-                        {tc.name}
-                      </div>
-                    ))}
-                  </div>
+              {consoleTab === 'testcases' && (() => {
+                // Split into visible (public) and hidden based on the name field in DB
+                const visibleCases = testCases.filter(tc => !String(tc.name).toLowerCase().includes('hidden'));
+                const hiddenCases  = testCases.filter(tc =>  String(tc.name).toLowerCase().includes('hidden'));
 
-                  <div className="bg-bg-panel border border-white/5 rounded-lg p-3 space-y-2">
-                    <div><span className="text-slate-500 font-semibold">Current Selected Input:</span></div>
-                    <div className="bg-bg-darker p-2 rounded text-slate-300 font-semibold">{testCases[0]?.input}</div>
-                    <div className="flex justify-between items-center text-[10px] text-slate-500 pt-1">
-                      <span>Expected Output: <strong className="text-slate-300">{testCases[0]?.expected || '—'}</strong></span>
+                // If no results yet, show the static input preview
+                if (!caseResults) {
+                  return (
+                    <div className="space-y-3">
+                      {/* Case selector pills */}
+                      <div className="flex flex-wrap gap-2">
+                        {visibleCases.map((tc, i) => (
+                          <button
+                            key={tc.id}
+                            onClick={() => setSelectedCase(i)}
+                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                              selectedCase === i
+                                ? 'border-brand-primary/50 bg-brand-primary/10 text-white'
+                                : 'border-white/5 bg-bg-panel/40 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {tc.name}
+                          </button>
+                        ))}
+                        {hiddenCases.length > 0 && (
+                          <div className="px-3 py-1.5 rounded-lg border border-white/5 bg-bg-panel/20 text-slate-600 text-xs flex items-center gap-1.5">
+                            <Lock className="w-3 h-3" />
+                            {hiddenCases.length} Hidden
+                          </div>
+                        )}
+                      </div>
+                      {/* Input preview for selected visible case */}
+                      {visibleCases[selectedCase] && (
+                        <div className="bg-bg-panel border border-white/5 rounded-lg p-3 space-y-2">
+                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Input</div>
+                          <div className="bg-bg-darker p-2 rounded text-slate-300 font-mono text-xs">
+                            {visibleCases[selectedCase].input}
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider pt-1">Expected Output</div>
+                          <div className="bg-bg-darker p-2 rounded text-slate-300 font-mono text-xs">
+                            {visibleCases[selectedCase].expected || '—'}
+                          </div>
+                        </div>
+                      )}
                     </div>
+                  );
+                }
+
+                // Results are available — show detailed feedback
+                const selectedTc = visibleCases[selectedCase];
+                // Find the corresponding runResult by matching index in the full testCases array
+                const selectedTcGlobalIdx = testCases.findIndex(tc => tc.id === selectedTc?.id);
+                const selectedResult = caseResults[selectedTcGlobalIdx];
+
+                const visiblePassed  = visibleCases.filter(tc => {
+                  const gi = testCases.findIndex(t => t.id === tc.id);
+                  return caseResults[gi]?.status === 'passed';
+                }).length;
+                const hiddenPassed = hiddenCases.filter(tc => {
+                  const gi = testCases.findIndex(t => t.id === tc.id);
+                  return caseResults[gi]?.status === 'passed';
+                }).length;
+
+                return (
+                  <div className="space-y-3">
+                    {/* Case selector pills with pass/fail colour */}
+                    <div className="flex flex-wrap gap-2">
+                      {visibleCases.map((tc, i) => {
+                        const gi = testCases.findIndex(t => t.id === tc.id);
+                        const res = caseResults[gi];
+                        const passed = res?.status === 'passed';
+                        return (
+                          <button
+                            key={tc.id}
+                            onClick={() => setSelectedCase(i)}
+                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                              selectedCase === i
+                                ? passed
+                                  ? 'border-brand-success/50 bg-brand-success/10 text-brand-success'
+                                  : 'border-brand-error/50 bg-brand-error/10 text-brand-error'
+                                : passed
+                                  ? 'border-brand-success/20 bg-brand-success/5 text-brand-success/70'
+                                  : 'border-brand-error/20 bg-brand-error/5 text-brand-error/70'
+                            }`}
+                          >
+                            {passed
+                              ? <CheckCircle className="w-3 h-3" />
+                              : <XCircle className="w-3 h-3" />}
+                            {tc.name}
+                          </button>
+                        );
+                      })}
+
+                      {/* Hidden case summary — only pass/fail counts, no input/expected */}
+                      {hiddenCases.length > 0 && (
+                        <div className={`px-3 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 font-semibold ${
+                          hiddenPassed === hiddenCases.length
+                            ? 'border-brand-success/20 bg-brand-success/5 text-brand-success/70'
+                            : 'border-brand-error/20 bg-brand-error/5 text-brand-error/70'
+                        }`}>
+                          <Lock className="w-3 h-3" />
+                          {hiddenPassed}/{hiddenCases.length} Hidden
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Detailed panel for the selected visible case */}
+                    {selectedTc && selectedResult && (
+                      <div className={`rounded-lg border p-3 space-y-3 ${
+                        selectedResult.status === 'passed'
+                          ? 'border-brand-success/20 bg-brand-success/5'
+                          : 'border-brand-error/20 bg-brand-error/5'
+                      }`}>
+                        {/* Status badge */}
+                        <div className={`flex items-center gap-2 text-xs font-bold ${
+                          selectedResult.status === 'passed' ? 'text-brand-success' : 'text-brand-error'
+                        }`}>
+                          {selectedResult.status === 'passed'
+                            ? <CheckCircle className="w-4 h-4" />
+                            : <XCircle className="w-4 h-4" />}
+                          {selectedResult.status === 'passed' ? 'Accepted' : 'Wrong Answer'}
+                          <span className="ml-auto text-slate-500 font-normal">
+                            {selectedResult.runtime} · {selectedResult.memory}
+                          </span>
+                        </div>
+
+                        {/* Input */}
+                        <div>
+                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Input</div>
+                          <div className="bg-bg-darker rounded p-2 font-mono text-xs text-slate-300 whitespace-pre-wrap">
+                            {selectedResult.input || selectedTc.input}
+                          </div>
+                        </div>
+
+                        {/* Expected */}
+                        <div>
+                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Expected Output</div>
+                          <div className="bg-bg-darker rounded p-2 font-mono text-xs text-brand-success whitespace-pre-wrap">
+                            {selectedResult.expected || selectedTc.expected}
+                          </div>
+                        </div>
+
+                        {/* Actual output — only show when failed */}
+                        {selectedResult.status !== 'passed' && (
+                          <div>
+                            <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Your Output</div>
+                            <div className="bg-bg-darker rounded p-2 font-mono text-xs text-brand-error whitespace-pre-wrap">
+                              {selectedResult.actual ?? 'N/A'}
+                            </div>
+                            {selectedResult.error && (
+                              <div className="mt-2 text-[10px] text-brand-error/70 font-mono whitespace-pre-wrap bg-brand-error/5 rounded p-2 border border-brand-error/10">
+                                {selectedResult.error}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Hidden case info note */}
+                    {hiddenCases.length > 0 && hiddenPassed < hiddenCases.length && (
+                      <div className="flex items-start gap-2 bg-brand-warning/5 border border-brand-warning/20 rounded-lg p-3 text-xs text-brand-warning/80">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span>
+                          {hiddenCases.length - hiddenPassed} hidden test case{hiddenCases.length - hiddenPassed > 1 ? 's' : ''} failed.
+                          Hidden cases test edge cases and corner cases not shown publicly.
+                        </span>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* 2. Console Logs Output */}
               {consoleTab === 'result' && (

@@ -76,10 +76,18 @@ export const submitCode = async (req, res) => {
     const passedCount = results.filter(r => r.status === 'passed').length;
 
     if (action === 'run') {
+      // Strip hidden test case details before responding
+      const sanitizedRun = results.map((r, idx) => {
+        const tcName = String(testCases[idx]?.name || '');
+        if (tcName.toLowerCase().includes('hidden')) {
+          return { id: r.id, name: r.name, status: r.status, runtime: r.runtime, memory: r.memory };
+        }
+        return r;
+      });
       return res.json({
         status: 'success',
         action: 'run',
-        runResults: results,
+        runResults: sanitizedRun,
         passedCount,
         totalCount
       });
@@ -245,6 +253,25 @@ export const submitCode = async (req, res) => {
       }
     }
 
+    // ─── Sanitize results before sending to client ─────────────────────────
+    // Hidden test cases: send pass/fail status & runtime but never reveal
+    // the input or expected output — that stays server-side only.
+    const sanitizedResults = results.map((r, idx) => {
+      const tcName = String(testCases[idx]?.name || '');
+      if (tcName.toLowerCase().includes('hidden')) {
+        return {
+          id: r.id,
+          name: r.name,
+          status: r.status,
+          runtime: r.runtime,
+          memory: r.memory,
+          // Deliberately omit: input, expected, actual, error
+        };
+      }
+      return r;
+    });
+    // ───────────────────────────────────────────────────────────────────────
+
     res.json({
       status: 'success',
       action: 'submit',
@@ -261,6 +288,7 @@ export const submitCode = async (req, res) => {
         memory: newSub.memory_used,
         createdAt: newSub.created_at
       },
+      runResults: sanitizedResults,
       passedCount,
       totalCount,
       user: formatUser(updatedProfile)
