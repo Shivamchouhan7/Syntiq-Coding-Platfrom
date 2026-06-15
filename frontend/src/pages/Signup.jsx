@@ -14,6 +14,7 @@ export default function Signup({ onLogin }) {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [emailError, setEmailError] = useState('');
 
   // Live password strength indicator logic
   const strength = useMemo(() => {
@@ -37,9 +38,28 @@ export default function Signup({ onLogin }) {
     }
   }, [password]);
 
+  const isValidEmail = (val) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val);
+
+  const handleEmailChange = (e) => {
+    setEmail(e.target.value);
+    if (emailError) setEmailError(''); // clear error as user types
+  };
+
+  const handleEmailBlur = () => {
+    if (email && !isValidEmail(email)) {
+      setEmailError('Please enter a valid email address.');
+    } else {
+      setEmailError('');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!fullname || !username || !email || !password || !confirmPassword) return;
+    if (!isValidEmail(email)) {
+      setEmailError('Please enter a valid email address.');
+      return;
+    }
     if (password !== confirmPassword) {
       setErrorMsg("Passwords do not match!");
       return;
@@ -139,13 +159,16 @@ export default function Signup({ onLogin }) {
             </label>
             <input
               id="signup-email"
-              type="email"
+              type="text"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={handleEmailChange}
+              onBlur={handleEmailBlur}
               placeholder="alex@example.com"
-              className="w-full bg-bg-darker border border-white/10 hover:border-white/20 focus:border-brand-primary focus:ring-1 focus:ring-brand-primary rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition-all"
-              required
+              className={`w-full bg-bg-darker border ${emailError ? 'border-brand-error focus:border-brand-error focus:ring-brand-error' : 'border-white/10 hover:border-white/20 focus:border-brand-primary focus:ring-brand-primary'} focus:ring-1 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition-all`}
             />
+            {emailError && (
+              <span className="text-xs text-brand-error mt-1 block">{emailError}</span>
+            )}
           </div>
 
           {/* Password */}
