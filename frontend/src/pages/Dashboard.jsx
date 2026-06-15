@@ -14,7 +14,14 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState('All');
 
   // Daily Coding Challenge Countdown
-  const [challengeTarget] = useState(() => Date.now() + (6 * 3600 + 45 * 60 + 12) * 1000);
+  // Target = 23:59:59.999 of today in the user's local timezone.
+  // Recomputed every time the countdown reaches 0 (new day).
+  const getEndOfDay = () => {
+    const eod = new Date();
+    eod.setHours(23, 59, 59, 999);
+    return eod.getTime();
+  };
+  const [challengeTarget, setChallengeTarget] = useState(getEndOfDay);
   const [challengeTime, setChallengeTime] = useState('');
 
   // Categories list
@@ -81,18 +88,24 @@ export default function Dashboard() {
       });
   }, []);
 
-  // Challenge countdown tick
+  // Challenge countdown tick — counts down to end of current calendar day
   useEffect(() => {
     const updateTime = () => {
-      const diff = challengeTarget - Date.now();
+      const now = Date.now();
+      const diff = challengeTarget - now;
+
       if (diff <= 0) {
-        setChallengeTime('Ended');
+        // Day has flipped — recalculate target for the new day
+        setChallengeTarget(getEndOfDay());
+        setChallengeTime('23:59:59');
         return;
       }
-      const sec = Math.floor(diff / 1000) % 60;
-      const min = Math.floor(diff / (1000 * 60)) % 60;
-      const hour = Math.floor(diff / (1000 * 60 * 60));
-      const pad = (n) => String(n).padStart(2, '0');
+
+      const totalSec = Math.floor(diff / 1000);
+      const sec  = totalSec % 60;
+      const min  = Math.floor(totalSec / 60) % 60;
+      const hour = Math.floor(totalSec / 3600);
+      const pad  = (n) => String(n).padStart(2, '0');
       setChallengeTime(`${pad(hour)}:${pad(min)}:${pad(sec)}`);
     };
 
