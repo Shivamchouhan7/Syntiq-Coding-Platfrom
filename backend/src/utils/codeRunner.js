@@ -1,21 +1,63 @@
 import vm from 'vm';
 
 // Helper to parse inputs like: nums = [2,7,11,15], target = 9
+// Uses a character-level parser that respects nesting (brackets, braces, quotes)
+// so commas inside arrays/objects are NOT mistaken for argument separators.
 export function parseInput(inputStr) {
   const result = {};
-  const regex = /(\w+)\s*=\s*(.+?)(?=\s*,\s*\w+\s*=|$)/g;
-  let match;
+
+  // Step 1: Split the input string into top-level "key = value" segments.
+  // We scan character by character, tracking bracket/quote depth so that
+  // commas inside [arrays] or {objects} or "strings" are not treated as
+  // separators between arguments.
+  const segments = [];
+  let depth = 0;
+  let inString = false;
+  let stringChar = '';
+  let segStart = 0;
+
+  for (let i = 0; i < inputStr.length; i++) {
+    const ch = inputStr[i];
+
+    if (inString) {
+      if (ch === '\\') { i++; continue; } // skip escaped char
+      if (ch === stringChar) inString = false;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+
+    if (ch === '[' || ch === '(' || ch === '{') { depth++; continue; }
+    if (ch === ']' || ch === ')' || ch === '}') { depth--; continue; }
+
+    // A top-level comma separates arguments
+    if (ch === ',' && depth === 0) {
+      segments.push(inputStr.slice(segStart, i).trim());
+      segStart = i + 1;
+    }
+  }
+  // Push the last segment
+  segments.push(inputStr.slice(segStart).trim());
+
+  // Step 2: Parse each segment as "key = value"
   let matched = false;
-  
-  while ((match = regex.exec(inputStr)) !== null) {
+  for (const seg of segments) {
+    const eqIdx = seg.indexOf('=');
+    if (eqIdx === -1) continue;
+
+    const key = seg.slice(0, eqIdx).trim();
+    // key must be a valid identifier (no spaces, starts with letter/_)
+    if (!/^\w+$/.test(key)) continue;
+
     matched = true;
-    const key = match[1];
-    let valStr = match[2].trim();
-    
+    let valStr = seg.slice(eqIdx + 1).trim();
+
     try {
-      // Evaluate basic JSON structures (arrays, numbers, strings, booleans, null)
-      // If it fails (e.g. unquoted strings or special tree structure format), we treat as string
-      // Replace all single quotes with double quotes for valid JSON
+      // Normalise single quotes → double quotes for JSON.parse
       const jsonStr = valStr.replace(/'/g, '"');
       result[key] = JSON.parse(jsonStr);
     } catch (e) {
@@ -23,6 +65,8 @@ export function parseInput(inputStr) {
     }
   }
 
+  // Step 3: If no "key = value" pairs were found, treat entire input as a
+  // single positional argument (e.g. a bare number or array).
   if (!matched) {
     let valStr = inputStr.trim();
     try {
@@ -34,9 +78,10 @@ export function parseInput(inputStr) {
       return { arg0: valStr };
     }
   }
-  
+
   return result;
 }
+
 
 // Compare values (handles array and nested structures)
 function compareOutput(actual, expectedStr) {
