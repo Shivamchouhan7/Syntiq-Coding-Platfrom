@@ -129,6 +129,30 @@ export const submitCode = async (req, res) => {
 
     if (subError) throw subError;
 
+    // ─── Update problem acceptance rate ────────────────────────────────────
+    // Count all submissions and accepted submissions for this problem,
+    // then recompute acceptance = (accepted / total) * 100 and persist it.
+    const [{ count: totalSubs }, { count: acceptedSubs }] = await Promise.all([
+      supabase
+        .from('submissions')
+        .select('id', { count: 'exact', head: true })
+        .eq('problem_id', problemId),
+      supabase
+        .from('submissions')
+        .select('id', { count: 'exact', head: true })
+        .eq('problem_id', problemId)
+        .eq('status', 'Accepted')
+    ]);
+
+    if (totalSubs > 0) {
+      const acceptancePct = ((acceptedSubs / totalSubs) * 100).toFixed(1) + '%';
+      await supabase
+        .from('problems')
+        .update({ acceptance: acceptancePct })
+        .eq('id', problemId);
+    }
+    // ───────────────────────────────────────────────────────────────────────
+
     // Get current profile
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
