@@ -15,6 +15,9 @@
 
 *Syntiq pairs you with real-time AI feedback, automated code analysis, and competitive live contests to accelerate your technical interview preparation.*
 
+🌍 **Live Platform:** [https://syntiq-coding-platfrom.vercel.app](https://syntiq-coding-platfrom.vercel.app)  
+⚙️ **Backend API:** [https://syntiq-coding-platfrom.onrender.com](https://syntiq-coding-platfrom.onrender.com)
+
 [🚀 Start Practicing](#getting-started) · [📖 API Docs](#api-reference) · [🤝 Contributing](#contributing)
 
 </div>
