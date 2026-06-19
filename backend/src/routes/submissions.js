@@ -1,19 +1,31 @@
 import express from 'express';
-import { submitCode, getSubmissionsHistory, getSubmissionById } from '../controllers/submissionController.js';
+import {
+  runCode,
+  submitCode,
+  getSubmissionsHistory,
+  getSubmissionById,
+} from '../controllers/submissionController.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Apply authMiddleware to all submission routes
+// All submission routes require authentication
 router.use(authMiddleware);
 
-// Submit code for a problem (Run / Submit)
-router.post('/', submitCode);
+// POST /api/submissions/run
+// Run code against visible test cases only — no DB write
+router.post('/run', runCode);
 
-// Get submissions list/history
+// POST /api/submissions/submit
+// Submit code against all hidden test cases — saves to DB via Prisma
+router.post('/submit', submitCode);
+
+// GET /api/submissions/
+// Return submission history for the authenticated user
 router.get('/', getSubmissionsHistory);
 
-// Get detailed submission by ID
+// GET /api/submissions/:id
+// Return a single submission by ID (scoped to authenticated user)
 router.get('/:id', getSubmissionById);
 
 export default router;

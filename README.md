@@ -126,9 +126,9 @@ Think of it as LeetCode meets an AI tutor — purpose-built for serious intervie
 
 | Component | Details |
 |---|---|
-| **Node.js `vm` module** | Sandboxed JavaScript execution |
-| **Timeout guard** | 1-second execution limit to prevent infinite loops |
-| **Deep comparison** | Custom output comparator supporting arrays, objects, multiple valid answers |
+| **Judge0** | Robust, sandboxed code execution engine running via Docker |
+| **Timeout guard** | Configurable execution limits to prevent infinite loops |
+| **Multi-language** | Full support for JavaScript, Python, C++, and Java execution |
 
 ---
 
@@ -198,6 +198,7 @@ Syntiq-Coding-Platform/
 
 - **Node.js** v18 or later
 - **npm** v9 or later
+- **Docker Desktop** (Required for the Judge0 code execution engine)
 - A **Supabase** project (free tier works fine)
 - A **Google Gemini API Key** (get one at [ai.google.dev](https://ai.google.dev))
 
@@ -229,7 +230,20 @@ npm run dev
 
 The backend will start on `http://localhost:5000`.
 
-### 3. Set Up the Frontend
+### 3. Set Up Judge0 (Code Execution Engine)
+
+This platform uses Judge0 running in Docker containers to safely execute user code.
+
+Open a new terminal:
+
+```bash
+cd judge0/judge0-v1.13.1
+docker-compose up -d
+```
+
+This will spin up the Judge0 API, workers, Redis, and PostgreSQL instances required for code execution.
+
+### 4. Set Up the Frontend
 
 Open a new terminal:
 
@@ -349,6 +363,21 @@ All API routes are prefixed with `/api`.
 | `/leaderboard` | Leaderboard | Platform-wide ranking table |
 | `/profile/:username` | Profile | Public user profile with stats and history |
 | `/admin/add-problem` | AdminAddProblem | Admin panel to add new problems |
+
+---
+
+## 📚 Adding New Problems
+
+When adding a new problem to the database, it **must** include specific Judge0 metadata for the code execution engine to dynamically generate test drivers.
+
+Required JSON metadata fields in the `problems` table:
+- `functionName` (String): e.g., `"twoSum"`
+- `returnType` (String): e.g., `"vector<int>"`
+- `parameters` (JSON Array): `[{"name": "nums", "type": "vector<int>"}, {"name": "target", "type": "int"}]`
+- `visibleTestCases` (JSON Array): `[{"input": "[2,7,11,15]\n9", "expectedOutput": "[0,1]"}]`
+- `hiddenTestCases` (JSON Array): Same format as `visibleTestCases`
+
+*Note: Currently, only problems that **return** a value are supported out-of-the-box. Problems requiring in-place memory modifications or custom data structures (like Linked Lists/Trees) require upgrading the execution engine infrastructure.*
 
 ---
 

@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { API_BASE } from '../config';
 import { useParams, Link } from 'react-router-dom';
 import { 
-  Play, Send, RotateCcw, Copy, CheckCircle, XCircle,
+  Play, Send, RotateCcw, Copy, CheckCircle, 
   MessageSquare, ChevronRight, Terminal as TermIcon,
   Code2, Lightbulb, BookOpen, Brain, Loader2,
-  LogIn, Shield, Lock, AlertTriangle
+  LogIn, Shield
 } from 'lucide-react';
 
 export default function ProblemDetail({ isLoggedIn, user }) {
@@ -22,14 +22,11 @@ export default function ProblemDetail({ isLoggedIn, user }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [testCases, setTestCases] = useState([]);
   const [runLogs, setRunLogs] = useState('');
+  const [runResults, setRunResults] = useState(null); // null = no run yet, array = per-test-case results
   const [submissions, setSubmissions] = useState([]);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [submitResult, setSubmitResult] = useState(null);
-  // Per-test-case results after run or submit (full detail from backend)
-  const [caseResults, setCaseResults] = useState(null);
-  // Which visible test case is selected/expanded in the panel
-  const [selectedCase, setSelectedCase] = useState(0);
 
   // Discussion state
   const [newComment, setNewComment] = useState('');
@@ -93,8 +90,10 @@ export default function ProblemDetail({ isLoggedIn, user }) {
           status: s.status,
           runtime: s.runtime || 'N/A',
           memory: s.memory || 'N/A',
-          lang: s.language ? (s.language.charAt(0).toUpperCase() + s.language.slice(1)) : 'JavaScript',
-          time: new Date(s.submittedAt).toLocaleDateString()
+          lang: s.language
+            ? s.language.charAt(0).toUpperCase() + s.language.slice(1).toLowerCase()
+            : 'JavaScript',
+          time: s.createdAt ? new Date(s.createdAt).toLocaleDateString() : 'N/A'
         }));
         setSubmissions(formattedSubs);
       }
@@ -131,17 +130,18 @@ export default function ProblemDetail({ isLoggedIn, user }) {
     return true;
   };
 
-  // Run Code — calls real backend API
+  // Run Code — calls POST /api/submissions/run (visible test cases only, no DB write)
   const handleRunCode = async () => {
     if (!requireAuth()) return;
 
     setIsRunning(true);
-    setCaseResults(null);
-    setConsoleTab('testcases');
+    setConsoleTab('result');
+    setRunLogs('⏳ Submitting to Judge0... please wait.');
+    setRunResults(null);
     
     try {
       const token = localStorage.getItem('syntiq_token');
-      const res = await fetch(`${API_BASE}/submissions`, {
+      const res = await fetch(`${API_BASE}/submissions/run`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -150,44 +150,64 @@ export default function ProblemDetail({ isLoggedIn, user }) {
         body: JSON.stringify({
           problemId: problem.id,
           language: selectedLang,
-          code,
-          action: 'run'
+          sourceCode: code
         })
       });
 
       const data = await res.json();
 
       if (data.status === 'success') {
-        const { runResults, passedCount, totalCount } = data;
-        setCaseResults(runResults);
-        setSelectedCase(0);
-        // Update status pills on the test case tabs
-        setTestCases(prev => prev.map((tc, idx) => ({
-          ...tc,
-          status: runResults[idx]?.status === 'passed' ? 'passed' : 'failed'
-        })));
+        const results = data.results || [];
+        const passedCount = results.filter(r => r.passed).length;
+        const totalCount = results.length;
+
+        // Build a human-readable log
+        const logLines = results.map((r, i) => {
+          const icon = r.passed ? '✅' : '❌';
+          const lines = [`${icon} Case ${i + 1}: ${r.verdict}`];
+          if (!r.passed) {
+            lines.push(`   Expected : ${r.expectedOutput}`);
+            lines.push(`   Got      : ${r.actualOutput || '(empty)'}`);
+            if (r.compileOutput) lines.push(`   Compile  : ${r.compileOutput.trim()}`);
+            if (r.stderr) lines.push(`   Stderr   : ${r.stderr.trim()}`);
+          }
+          if (r.executionTime != null) lines.push(`   Time     : ${r.executionTime}s`);
+          return lines.join('\n');
+        });
+
+        setRunLogs(
+          `${passedCount}/${totalCount} test cases passed\n\n` + logLines.join('\n\n')
+        );
+        setRunResults(results);
+
+        // Update test-case pill statuses in the Test Cases panel
+        setTestCases(prev =>
+          prev.map((tc, idx) => ({
+            ...tc,
+            status: results[idx]?.passed ? 'passed' : results[idx] ? 'failed' : tc.status
+          }))
+        );
       } else {
-        setRunLogs(`Error: ${data.message || 'Failed to run code.'}`);
-        setConsoleTab('result');
+        setRunLogs(`❌ Error: ${data.message || 'Failed to run code.'}`);
       }
     } catch (err) {
-      setRunLogs('Error: Unable to connect to server. Make sure the backend is running.');
-      setConsoleTab('result');
+      setRunLogs('❌ Error: Unable to connect to server. Make sure the backend is running.');
     } finally {
       setIsRunning(false);
     }
   };
 
-  // Submit Code — calls real backend API
+  // Submit Code — calls POST /api/submissions/submit (hidden test cases, saves to DB)
   const handleSubmitCode = async () => {
     if (!requireAuth()) return;
 
     setIsSubmitting(true);
-    setCaseResults(null);
+    setConsoleTab('result');
+    setRunLogs('⏳ Judging your submission against hidden test cases...');
     
     try {
       const token = localStorage.getItem('syntiq_token');
-      const res = await fetch(`${API_BASE}/submissions`, {
+      const res = await fetch(`${API_BASE}/submissions/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -196,52 +216,42 @@ export default function ProblemDetail({ isLoggedIn, user }) {
         body: JSON.stringify({
           problemId: problem.id,
           language: selectedLang,
-          code,
-          action: 'submit'
+          sourceCode: code
         })
       });
-
-      const data = await res.json();
 
       if (res.status === 401) {
         setShowLoginModal(true);
         return;
       }
 
+      const data = await res.json();
+
       if (data.status === 'success') {
-        const { submission, passedCount, totalCount, runResults } = data;
-        setSubmitResult({ submission, passedCount, totalCount, runResults });
-        // Show test case breakdown in console panel
-        if (runResults) {
-          setCaseResults(runResults);
-          setSelectedCase(0);
-        }
-        setConsoleTab('testcases');
+        // New response shape: { submissionId, verdict, passedTestCases, totalTestCases, executionTime, memoryUsed }
+        setSubmitResult(data);
         setShowSubmitModal(true);
-        // Update status pills
-        if (runResults) {
-          setTestCases(prev => prev.map((tc, idx) => ({
-            ...tc,
-            status: runResults[idx]?.status === 'passed' ? 'passed' : 'failed'
-          })));
-        }
+        setRunLogs(
+          `${data.verdict}: ${data.passedTestCases}/${data.totalTestCases} test cases passed` +
+          (data.executionTime != null ? `\nRuntime: ${data.executionTime}s` : '') +
+          (data.memoryUsed != null ? `\nMemory: ${data.memoryUsed} KB` : '')
+        );
+
         // Add to local submissions list
         const newSub = {
-          id: submission.id,
-          status: submission.status,
-          runtime: submission.runtime,
-          memory: submission.memory,
-          lang: selectedLang.charAt(0).toUpperCase() + selectedLang.slice(1),
-          time: "Just now"
+          id: data.submissionId || Date.now(),
+          status: data.verdict,
+          runtime: data.executionTime != null ? `${data.executionTime}s` : 'N/A',
+          memory: data.memoryUsed != null ? `${data.memoryUsed} KB` : 'N/A',
+          lang: selectedLang.charAt(0).toUpperCase() + selectedLang.slice(1).toLowerCase(),
+          time: 'Just now'
         };
         setSubmissions([newSub, ...submissions]);
       } else {
-        setConsoleTab('result');
-        setRunLogs(`Submission Error: ${data.message || 'Failed to submit code.'}`);
+        setRunLogs(`❌ Submission Error: ${data.message || 'Failed to submit code.'}`);
       }
     } catch (err) {
-      setConsoleTab('result');
-      setRunLogs('Error: Unable to connect to server. Make sure the backend is running.');
+      setRunLogs('❌ Error: Unable to connect to server. Make sure the backend is running.');
     } finally {
       setIsSubmitting(false);
     }
@@ -505,7 +515,11 @@ export default function ProblemDetail({ isLoggedIn, user }) {
                       >
                         <div>
                           <div className="flex items-center gap-2 mb-1.5">
-                            <span className={`font-bold ${sub.status === 'Accepted' ? 'text-brand-success' : 'text-brand-error'}`}>
+                             <span className={`font-bold ${
+                              sub.status === 'Accepted' || sub.status === 'ACCEPTED'
+                                ? 'text-brand-success'
+                                : 'text-brand-error'
+                            }`}>
                               {sub.status}
                             </span>
                             <span className="text-slate-500">•</span>
@@ -721,178 +735,31 @@ export default function ProblemDetail({ isLoggedIn, user }) {
             <div className="p-4 flex-grow overflow-y-auto text-xs font-mono text-slate-300">
               
               {/* 1. Test Cases View */}
-              {consoleTab === 'testcases' && (() => {
-                // Split into visible (public) and hidden based on the name field in DB
-                const visibleCases = testCases.filter(tc => !String(tc.name).toLowerCase().includes('hidden'));
-                const hiddenCases  = testCases.filter(tc =>  String(tc.name).toLowerCase().includes('hidden'));
-
-                // If no results yet, show the static input preview
-                if (!caseResults) {
-                  return (
-                    <div className="space-y-3">
-                      {/* Case selector pills */}
-                      <div className="flex flex-wrap gap-2">
-                        {visibleCases.map((tc, i) => (
-                          <button
-                            key={tc.id}
-                            onClick={() => setSelectedCase(i)}
-                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                              selectedCase === i
-                                ? 'border-brand-primary/50 bg-brand-primary/10 text-white'
-                                : 'border-white/5 bg-bg-panel/40 text-slate-400 hover:text-slate-200'
-                            }`}
-                          >
-                            {tc.name}
-                          </button>
-                        ))}
-                        {hiddenCases.length > 0 && (
-                          <div className="px-3 py-1.5 rounded-lg border border-white/5 bg-bg-panel/20 text-slate-600 text-xs flex items-center gap-1.5">
-                            <Lock className="w-3 h-3" />
-                            {hiddenCases.length} Hidden
-                          </div>
-                        )}
+              {consoleTab === 'testcases' && (
+                <div className="space-y-4">
+                  <div className="flex gap-2">
+                    {testCases.map((tc) => (
+                      <div 
+                        key={tc.id} 
+                        className={`px-3 py-1.5 rounded-lg border flex items-center gap-1.5 bg-bg-panel/40 ${
+                          tc.status === 'passed' ? 'border-brand-success/30 text-brand-success' : 'border-white/5 text-slate-400'
+                        }`}
+                      >
+                        {tc.status === 'passed' && <CheckCircle className="w-3.5 h-3.5" />}
+                        {tc.name}
                       </div>
-                      {/* Input preview for selected visible case */}
-                      {visibleCases[selectedCase] && (
-                        <div className="bg-bg-panel border border-white/5 rounded-lg p-3 space-y-2">
-                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Input</div>
-                          <div className="bg-bg-darker p-2 rounded text-slate-300 font-mono text-xs">
-                            {visibleCases[selectedCase].input}
-                          </div>
-                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider pt-1">Expected Output</div>
-                          <div className="bg-bg-darker p-2 rounded text-slate-300 font-mono text-xs">
-                            {visibleCases[selectedCase].expected || '—'}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-
-                // Results are available — show detailed feedback
-                const selectedTc = visibleCases[selectedCase];
-                // Find the corresponding runResult by matching index in the full testCases array
-                const selectedTcGlobalIdx = testCases.findIndex(tc => tc.id === selectedTc?.id);
-                const selectedResult = caseResults[selectedTcGlobalIdx];
-
-                const visiblePassed  = visibleCases.filter(tc => {
-                  const gi = testCases.findIndex(t => t.id === tc.id);
-                  return caseResults[gi]?.status === 'passed';
-                }).length;
-                const hiddenPassed = hiddenCases.filter(tc => {
-                  const gi = testCases.findIndex(t => t.id === tc.id);
-                  return caseResults[gi]?.status === 'passed';
-                }).length;
-
-                return (
-                  <div className="space-y-3">
-                    {/* Case selector pills with pass/fail colour */}
-                    <div className="flex flex-wrap gap-2">
-                      {visibleCases.map((tc, i) => {
-                        const gi = testCases.findIndex(t => t.id === tc.id);
-                        const res = caseResults[gi];
-                        const passed = res?.status === 'passed';
-                        return (
-                          <button
-                            key={tc.id}
-                            onClick={() => setSelectedCase(i)}
-                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                              selectedCase === i
-                                ? passed
-                                  ? 'border-brand-success/50 bg-brand-success/10 text-brand-success'
-                                  : 'border-brand-error/50 bg-brand-error/10 text-brand-error'
-                                : passed
-                                  ? 'border-brand-success/20 bg-brand-success/5 text-brand-success/70'
-                                  : 'border-brand-error/20 bg-brand-error/5 text-brand-error/70'
-                            }`}
-                          >
-                            {passed
-                              ? <CheckCircle className="w-3 h-3" />
-                              : <XCircle className="w-3 h-3" />}
-                            {tc.name}
-                          </button>
-                        );
-                      })}
-
-                      {/* Hidden case summary — only pass/fail counts, no input/expected */}
-                      {hiddenCases.length > 0 && (
-                        <div className={`px-3 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 font-semibold ${
-                          hiddenPassed === hiddenCases.length
-                            ? 'border-brand-success/20 bg-brand-success/5 text-brand-success/70'
-                            : 'border-brand-error/20 bg-brand-error/5 text-brand-error/70'
-                        }`}>
-                          <Lock className="w-3 h-3" />
-                          {hiddenPassed}/{hiddenCases.length} Hidden
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Detailed panel for the selected visible case */}
-                    {selectedTc && selectedResult && (
-                      <div className={`rounded-lg border p-3 space-y-3 ${
-                        selectedResult.status === 'passed'
-                          ? 'border-brand-success/20 bg-brand-success/5'
-                          : 'border-brand-error/20 bg-brand-error/5'
-                      }`}>
-                        {/* Status badge */}
-                        <div className={`flex items-center gap-2 text-xs font-bold ${
-                          selectedResult.status === 'passed' ? 'text-brand-success' : 'text-brand-error'
-                        }`}>
-                          {selectedResult.status === 'passed'
-                            ? <CheckCircle className="w-4 h-4" />
-                            : <XCircle className="w-4 h-4" />}
-                          {selectedResult.status === 'passed' ? 'Accepted' : 'Wrong Answer'}
-                          <span className="ml-auto text-slate-500 font-normal">
-                            {selectedResult.runtime} · {selectedResult.memory}
-                          </span>
-                        </div>
-
-                        {/* Input */}
-                        <div>
-                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Input</div>
-                          <div className="bg-bg-darker rounded p-2 font-mono text-xs text-slate-300 whitespace-pre-wrap">
-                            {selectedResult.input || selectedTc.input}
-                          </div>
-                        </div>
-
-                        {/* Expected */}
-                        <div>
-                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Expected Output</div>
-                          <div className="bg-bg-darker rounded p-2 font-mono text-xs text-brand-success whitespace-pre-wrap">
-                            {selectedResult.expected || selectedTc.expected}
-                          </div>
-                        </div>
-
-                        {/* Actual output — always show so user can verify */}
-                        <div>
-                          <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Your Output</div>
-                          <div className={`bg-bg-darker rounded p-2 font-mono text-xs whitespace-pre-wrap ${
-                            selectedResult.status === 'passed' ? 'text-slate-300' : 'text-brand-error'
-                          }`}>
-                            {selectedResult.actual ?? 'N/A'}
-                          </div>
-                          {selectedResult.error && (
-                            <div className="mt-2 text-[10px] text-brand-error/70 font-mono whitespace-pre-wrap bg-brand-error/5 rounded p-2 border border-brand-error/10">
-                              {selectedResult.error}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Hidden case info note */}
-                    {hiddenCases.length > 0 && hiddenPassed < hiddenCases.length && (
-                      <div className="flex items-start gap-2 bg-brand-warning/5 border border-brand-warning/20 rounded-lg p-3 text-xs text-brand-warning/80">
-                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                        <span>
-                          {hiddenCases.length - hiddenPassed} hidden test case{hiddenCases.length - hiddenPassed > 1 ? 's' : ''} failed.
-                          Hidden cases test edge cases and corner cases not shown publicly.
-                        </span>
-                      </div>
-                    )}
+                    ))}
                   </div>
-                );
-              })()}
+
+                  <div className="bg-bg-panel border border-white/5 rounded-lg p-3 space-y-2">
+                    <div><span className="text-slate-500 font-semibold">Current Selected Input:</span></div>
+                    <div className="bg-bg-darker p-2 rounded text-slate-300 font-semibold">{testCases[0]?.input}</div>
+                    <div className="flex justify-between items-center text-[10px] text-slate-500 pt-1">
+                      <span>Expected Output: <strong className="text-slate-300">{testCases[0]?.expected || '—'}</strong></span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* 2. Console Logs Output */}
               {consoleTab === 'result' && (
@@ -975,59 +842,67 @@ export default function ProblemDetail({ isLoggedIn, user }) {
       </div>
 
       {/* SUBMIT RESULT MODAL */}
-      {showSubmitModal && submitResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className={`bg-bg-panel border ${submitResult.submission.status === 'Accepted' ? 'border-brand-success/30 glow-green' : 'border-brand-error/30'} w-full max-w-md rounded-2xl p-6 relative animate-in fade-in zoom-in-95 duration-200`}>
-            <div className="flex flex-col items-center text-center">
-              <div className={`w-14 h-14 rounded-full ${submitResult.submission.status === 'Accepted' ? 'bg-brand-success/10 text-brand-success border-brand-success/30 glow-green' : 'bg-brand-error/10 text-brand-error border-brand-error/30'} flex items-center justify-center mb-4 border`}>
-                {submitResult.submission.status === 'Accepted' 
-                  ? <CheckCircle className="w-8 h-8" />
-                  : <Shield className="w-8 h-8" />
-                }
-              </div>
-              
-              <h3 className="text-xl font-bold text-white">{submitResult.submission.status}</h3>
-              <p className={`text-xs font-semibold mt-1 ${submitResult.submission.status === 'Accepted' ? 'text-brand-success' : 'text-brand-error'}`}>
-                {submitResult.passedCount}/{submitResult.totalCount} Test Cases Passed
-              </p>
-              
-              <div className="grid grid-cols-2 gap-4 w-full my-6 bg-bg-darker p-4 rounded-xl border border-white/5 text-xs font-mono">
-                <div className="text-left border-r border-white/5 pr-2">
-                  <div className="text-slate-500">Runtime</div>
-                  <div className="text-sm font-bold text-white mt-0.5">{submitResult.submission.runtime}</div>
+      {showSubmitModal && submitResult && (() => {
+        const isAccepted = submitResult.verdict === 'ACCEPTED' || submitResult.verdict === 'Accepted';
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className={`bg-bg-panel border ${
+              isAccepted ? 'border-brand-success/30 glow-green' : 'border-brand-error/30'
+            } w-full max-w-md rounded-2xl p-6 relative animate-in fade-in zoom-in-95 duration-200`}>
+              <div className="flex flex-col items-center text-center">
+                <div className={`w-14 h-14 rounded-full ${
+                  isAccepted
+                    ? 'bg-brand-success/10 text-brand-success border-brand-success/30 glow-green'
+                    : 'bg-brand-error/10 text-brand-error border-brand-error/30'
+                } flex items-center justify-center mb-4 border`}>
+                  {isAccepted ? <CheckCircle className="w-8 h-8" /> : <Shield className="w-8 h-8" />}
                 </div>
-                <div className="text-left pl-2">
-                  <div className="text-slate-500">Memory Usage</div>
-                  <div className="text-sm font-bold text-white mt-0.5">{submitResult.submission.memory}</div>
-                </div>
-              </div>
 
-              {submitResult.submission.error && (
-                <div className="w-full bg-brand-error/5 border border-brand-error/20 rounded-lg p-3 text-xs text-left text-brand-error font-mono mb-4 overflow-auto max-h-24">
-                  {submitResult.submission.error}
-                </div>
-              )}
+                <h3 className="text-xl font-bold text-white">{submitResult.verdict}</h3>
+                <p className={`text-xs font-semibold mt-1 ${isAccepted ? 'text-brand-success' : 'text-brand-error'}`}>
+                  {submitResult.passedTestCases ?? 0}/{submitResult.totalTestCases ?? 0} Test Cases Passed
+                </p>
 
-              <div className="flex gap-3 w-full">
-                <button
-                  id="modal-close-btn"
-                  onClick={() => { setShowSubmitModal(false); setSubmitResult(null); }}
-                  className="flex-1 bg-white/5 hover:bg-white/10 text-white text-xs font-bold py-3 rounded-xl border border-white/10 transition-colors"
-                >
-                  Close Panel
-                </button>
-                <Link
-                  id="modal-dashboard-btn"
-                  to="/dashboard"
-                  className={`flex-1 ${submitResult.submission.status === 'Accepted' ? 'bg-brand-success hover:bg-brand-success/90 text-slate-900' : 'bg-white/10 hover:bg-white/15 text-white'} text-xs font-bold py-3 rounded-xl transition-colors text-center`}
-                >
-                  Back to Dashboard
-                </Link>
+                <div className="grid grid-cols-2 gap-4 w-full my-6 bg-bg-darker p-4 rounded-xl border border-white/5 text-xs font-mono">
+                  <div className="text-left border-r border-white/5 pr-2">
+                    <div className="text-slate-500">Runtime</div>
+                    <div className="text-sm font-bold text-white mt-0.5">
+                      {submitResult.executionTime != null ? `${submitResult.executionTime}s` : 'N/A'}
+                    </div>
+                  </div>
+                  <div className="text-left pl-2">
+                    <div className="text-slate-500">Memory Usage</div>
+                    <div className="text-sm font-bold text-white mt-0.5">
+                      {submitResult.memoryUsed != null ? `${submitResult.memoryUsed} KB` : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 w-full">
+                  <button
+                    id="modal-close-btn"
+                    onClick={() => { setShowSubmitModal(false); setSubmitResult(null); }}
+                    className="flex-1 bg-white/5 hover:bg-white/10 text-white text-xs font-bold py-3 rounded-xl border border-white/10 transition-colors"
+                  >
+                    Close Panel
+                  </button>
+                  <Link
+                    id="modal-dashboard-btn"
+                    to="/dashboard"
+                    className={`flex-1 ${
+                      isAccepted
+                        ? 'bg-brand-success hover:bg-brand-success/90 text-slate-900'
+                        : 'bg-white/10 hover:bg-white/15 text-white'
+                    } text-xs font-bold py-3 rounded-xl transition-colors text-center`}
+                  >
+                    Back to Dashboard
+                  </Link>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* LOGIN REQUIRED MODAL */}
       {showLoginModal && (
